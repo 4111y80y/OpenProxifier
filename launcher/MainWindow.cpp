@@ -306,7 +306,11 @@ void MainWindow::onMonitoringStarted()
     ui->startMonitorButton->setEnabled(false);
     ui->stopMonitorButton->setEnabled(true);
     ui->proxyGroup->setEnabled(false);
-    ui->targetGroup->setEnabled(false);
+    // Don't disable targetGroup entirely - stopMonitorButton is inside it
+    ui->exeNameEdit->setEnabled(false);
+    ui->addExeButton->setEnabled(false);
+    ui->removeExeButton->setEnabled(false);
+    ui->exeListWidget->setEnabled(false);
     ui->launchGroup->setEnabled(false);
     updateStatus("Monitoring...");
     appendLog("[INFO] Monitoring started - waiting for target processes...");
@@ -317,7 +321,11 @@ void MainWindow::onMonitoringStopped()
     ui->startMonitorButton->setEnabled(true);
     ui->stopMonitorButton->setEnabled(false);
     ui->proxyGroup->setEnabled(true);
-    ui->targetGroup->setEnabled(true);
+    // Re-enable targetGroup controls
+    ui->exeNameEdit->setEnabled(true);
+    ui->addExeButton->setEnabled(true);
+    ui->removeExeButton->setEnabled(true);
+    ui->exeListWidget->setEnabled(true);
     ui->launchGroup->setEnabled(true);
     updateStatus("Ready");
     appendLog("[INFO] Monitoring stopped");
