@@ -135,12 +135,27 @@ int wmain(int argc, wchar_t* argv[]) {
 
     if (argc < 2) {
         DebugLog("No target executable specified");
+        std::wcerr << L"Usage: ProxifierInjector <executable> [args...]" << std::endl;
         return 1;
     }
 
     // The first argument after our exe name is the target exe path
     std::wstring targetExe = argv[1];
     DebugLog("Target exe: %ls", targetExe.c_str());
+
+    // If the target is not an absolute path, search for it in PATH
+    if (targetExe.find(L'\\') == std::wstring::npos && targetExe.find(L'/') == std::wstring::npos) {
+        wchar_t fullPath[MAX_PATH];
+        DWORD result = SearchPathW(NULL, targetExe.c_str(), L".exe", MAX_PATH, fullPath, NULL);
+        if (result > 0 && result < MAX_PATH) {
+            targetExe = fullPath;
+            DebugLog("Resolved path: %ls", targetExe.c_str());
+        } else {
+            DebugLog("SearchPath failed for: %ls, error: %d", argv[1], GetLastError());
+            std::wcerr << L"Error: Cannot find executable: " << argv[1] << std::endl;
+            return 1;
+        }
+    }
 
     // Build command line from remaining arguments
     std::wstring cmdLine = L"\"" + targetExe + L"\"";
