@@ -7,6 +7,13 @@
 #include <QThread>
 #include <windows.h>
 
+// Forward declarations for WMI
+struct IUnknown;
+struct IWbemLocator;
+struct IWbemServices;
+struct IUnsecuredApartment;
+struct IWbemObjectSink;
+
 class ProcessMonitor : public QObject
 {
     Q_OBJECT
@@ -40,6 +47,9 @@ public:
     // Check if monitoring is active
     bool isMonitoring() const { return m_running; }
 
+    // Called by WMI event sink when a process is created
+    void onProcessCreated(const QString& exeName, DWORD processId);
+
 signals:
     void processDetected(const QString& exeName, DWORD processId);
     void injectionResult(const QString& exeName, DWORD processId, bool success, const QString& message);
@@ -53,6 +63,10 @@ private slots:
 private:
     bool injectIntoProcess(DWORD processId);
     bool createProxySharedMemory(DWORD processId);
+    bool suspendProcess(DWORD processId);
+    bool resumeProcess(DWORD processId);
+    bool initWMI();
+    void cleanupWMI();
 
     QThread* m_thread;
     volatile bool m_running;
@@ -68,6 +82,15 @@ private:
 
     // Track already injected processes
     QSet<DWORD> m_injectedProcesses;
+
+    // WMI objects
+    IWbemLocator* m_pLocator;
+    IWbemServices* m_pServices;
+    IUnsecuredApartment* m_pUnsecApp;
+    IWbemObjectSink* m_pSink;
+    IUnknown* m_pStubUnk;
+    IWbemObjectSink* m_pStubSink;
+    bool m_wmiInitialized;
 };
 
 #endif // PROCESS_MONITOR_H

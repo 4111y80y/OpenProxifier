@@ -6,6 +6,10 @@
 #include <QDir>
 #include <tlhelp32.h>
 #include <cstdio>
+#include <comdef.h>
+#include <Wbemidl.h>
+
+#pragma comment(lib, "wbemuuid.lib")
 
 // Debug log function for process monitor
 static void MonitorLog(const char* format, ...) {
@@ -31,6 +35,80 @@ static void MonitorLog(const char* format, ...) {
     }
 }
 
+// WMI Event Sink class for receiving process creation events
+class ProcessEventSink : public IWbemObjectSink
+{
+    LONG m_lRef;
+    ProcessMonitor* m_pMonitor;
+
+public:
+    ProcessEventSink(ProcessMonitor* pMonitor) : m_lRef(0), m_pMonitor(pMonitor) {}
+    ~ProcessEventSink() {}
+
+    virtual ULONG STDMETHODCALLTYPE AddRef() {
+        return InterlockedIncrement(&m_lRef);
+    }
+
+    virtual ULONG STDMETHODCALLTYPE Release() {
+        LONG lRef = InterlockedDecrement(&m_lRef);
+        if (lRef == 0) delete this;
+        return lRef;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) {
+        if (riid == IID_IUnknown || riid == IID_IWbemObjectSink) {
+            *ppv = (IWbemObjectSink*)this;
+            AddRef();
+            return WBEM_S_NO_ERROR;
+        }
+        return E_NOINTERFACE;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE Indicate(
+        LONG lObjectCount,
+        IWbemClassObject __RPC_FAR* __RPC_FAR* apObjArray)
+    {
+        for (LONG i = 0; i < lObjectCount; i++) {
+            IWbemClassObject* pObj = apObjArray[i];
+
+            VARIANT vtProp;
+            VariantInit(&vtProp);
+
+            // Get process name
+            QString processName;
+            if (SUCCEEDED(pObj->Get(L"ProcessName", 0, &vtProp, 0, 0))) {
+                if (vtProp.vt == VT_BSTR) {
+                    processName = QString::fromWCharArray(vtProp.bstrVal);
+                }
+                VariantClear(&vtProp);
+            }
+
+            // Get process ID
+            DWORD processId = 0;
+            if (SUCCEEDED(pObj->Get(L"ProcessID", 0, &vtProp, 0, 0))) {
+                if (vtProp.vt == VT_I4 || vtProp.vt == VT_UI4) {
+                    processId = vtProp.ulVal;
+                }
+                VariantClear(&vtProp);
+            }
+
+            MonitorLog("WMI Event: Process %s (PID %d) created",
+                      processName.toStdString().c_str(), processId);
+
+            if (!processName.isEmpty() && processId != 0 && m_pMonitor) {
+                m_pMonitor->onProcessCreated(processName, processId);
+            }
+        }
+        return WBEM_S_NO_ERROR;
+    }
+
+    virtual HRESULT STDMETHODCALLTYPE SetStatus(
+        LONG lFlags, HRESULT hResult, BSTR strParam, IWbemClassObject __RPC_FAR* pObjParam)
+    {
+        return WBEM_S_NO_ERROR;
+    }
+};
+
 ProcessMonitor::ProcessMonitor(QObject* parent)
     : QObject(parent)
     , m_thread(nullptr)
@@ -38,12 +116,128 @@ ProcessMonitor::ProcessMonitor(QObject* parent)
     , m_proxyIp(0)
     , m_proxyPort(0)
     , m_authRequired(false)
+    , m_pLocator(nullptr)
+    , m_pServices(nullptr)
+    , m_pUnsecApp(nullptr)
+    , m_pSink(nullptr)
+    , m_pStubUnk(nullptr)
+    , m_pStubSink(nullptr)
+    , m_wmiInitialized(false)
 {
 }
 
 ProcessMonitor::~ProcessMonitor()
 {
     stopMonitoring();
+}
+
+bool ProcessMonitor::initWMI()
+{
+    if (m_wmiInitialized) return true;
+
+    HRESULT hr;
+
+    // Initialize COM
+    hr = CoInitializeEx(0, COINIT_MULTITHREADED);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+        MonitorLog("CoInitializeEx failed: 0x%08X", hr);
+        return false;
+    }
+
+    // Set security levels
+    hr = CoInitializeSecurity(
+        NULL, -1, NULL, NULL,
+        RPC_C_AUTHN_LEVEL_DEFAULT,
+        RPC_C_IMP_LEVEL_IMPERSONATE,
+        NULL, EOAC_NONE, NULL);
+
+    if (FAILED(hr) && hr != RPC_E_TOO_LATE) {
+        MonitorLog("CoInitializeSecurity failed: 0x%08X", hr);
+        return false;
+    }
+
+    // Create WMI locator
+    hr = CoCreateInstance(
+        CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER,
+        IID_IWbemLocator, (LPVOID*)&m_pLocator);
+
+    if (FAILED(hr)) {
+        MonitorLog("CoCreateInstance WbemLocator failed: 0x%08X", hr);
+        return false;
+    }
+
+    // Connect to WMI
+    hr = m_pLocator->ConnectServer(
+        _bstr_t(L"ROOT\\CIMV2"), NULL, NULL, 0, NULL, 0, 0, &m_pServices);
+
+    if (FAILED(hr)) {
+        MonitorLog("ConnectServer failed: 0x%08X", hr);
+        m_pLocator->Release();
+        m_pLocator = nullptr;
+        return false;
+    }
+
+    // Set security on proxy
+    hr = CoSetProxyBlanket(
+        m_pServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL,
+        RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+
+    if (FAILED(hr)) {
+        MonitorLog("CoSetProxyBlanket failed: 0x%08X", hr);
+        m_pServices->Release();
+        m_pLocator->Release();
+        m_pServices = nullptr;
+        m_pLocator = nullptr;
+        return false;
+    }
+
+    // Create unsecured apartment for async calls
+    hr = CoCreateInstance(
+        CLSID_UnsecuredApartment, NULL, CLSCTX_LOCAL_SERVER,
+        IID_IUnsecuredApartment, (void**)&m_pUnsecApp);
+
+    if (FAILED(hr)) {
+        MonitorLog("CoCreateInstance UnsecuredApartment failed: 0x%08X", hr);
+        m_pServices->Release();
+        m_pLocator->Release();
+        m_pServices = nullptr;
+        m_pLocator = nullptr;
+        return false;
+    }
+
+    m_wmiInitialized = true;
+    MonitorLog("WMI initialized successfully");
+    return true;
+}
+
+void ProcessMonitor::cleanupWMI()
+{
+    if (m_pStubSink) {
+        m_pServices->CancelAsyncCall(m_pStubSink);
+        m_pStubSink->Release();
+        m_pStubSink = nullptr;
+    }
+    if (m_pStubUnk) {
+        m_pStubUnk->Release();
+        m_pStubUnk = nullptr;
+    }
+    if (m_pSink) {
+        m_pSink->Release();
+        m_pSink = nullptr;
+    }
+    if (m_pUnsecApp) {
+        m_pUnsecApp->Release();
+        m_pUnsecApp = nullptr;
+    }
+    if (m_pServices) {
+        m_pServices->Release();
+        m_pServices = nullptr;
+    }
+    if (m_pLocator) {
+        m_pLocator->Release();
+        m_pLocator = nullptr;
+    }
+    m_wmiInitialized = false;
 }
 
 void ProcessMonitor::startMonitoring()
@@ -67,7 +261,49 @@ void ProcessMonitor::startMonitoring()
         return;
     }
 
+    // Try WMI first
+    if (initWMI()) {
+        MonitorLog("Using WMI event-based monitoring");
+
+        // Create event sink
+        m_pSink = new ProcessEventSink(this);
+        m_pSink->AddRef();
+
+        // Create stub sink for async
+        HRESULT hr = m_pUnsecApp->CreateObjectStub(m_pSink, &m_pStubUnk);
+        if (SUCCEEDED(hr)) {
+            hr = m_pStubUnk->QueryInterface(IID_IWbemObjectSink, (void**)&m_pStubSink);
+        }
+
+        if (SUCCEEDED(hr)) {
+            // Subscribe to process creation events
+            hr = m_pServices->ExecNotificationQueryAsync(
+                _bstr_t("WQL"),
+                _bstr_t("SELECT * FROM Win32_ProcessStartTrace"),
+                WBEM_FLAG_SEND_STATUS, NULL, m_pStubSink);
+
+            if (SUCCEEDED(hr)) {
+                MonitorLog("WMI event subscription successful");
+                m_running = true;
+                emit monitoringStarted();
+                return;
+            } else {
+                MonitorLog("ExecNotificationQueryAsync failed: 0x%08X", hr);
+                if (hr == WBEM_E_ACCESS_DENIED) {
+                    emit error("WMI access denied. Run as Administrator for real-time detection.");
+                }
+            }
+        }
+
+        // WMI subscription failed, cleanup and fall back to polling
+        cleanupWMI();
+    }
+
+    // Fall back to polling if WMI fails
+    MonitorLog("Falling back to polling-based monitoring");
     MonitorLog("Starting monitoring thread with %d targets", m_targetProcesses.size());
+    MonitorLog("Note: Polling may miss fast programs. Run as Admin for WMI real-time detection.");
+
     m_running = true;
     m_thread = QThread::create([this]() { onMonitorThread(); });
     m_thread->start();
@@ -81,12 +317,18 @@ void ProcessMonitor::stopMonitoring()
     }
 
     m_running = false;
+
+    // Cleanup WMI
+    cleanupWMI();
+
+    // Stop polling thread if running
     if (m_thread) {
         m_thread->quit();
         m_thread->wait(3000);
         delete m_thread;
         m_thread = nullptr;
     }
+
     m_injectedProcesses.clear();
     emit monitoringStopped();
 }
@@ -121,20 +363,111 @@ void ProcessMonitor::setProxyConfig(uint32_t ip, uint16_t port, bool authRequire
     m_password = password;
 }
 
-void ProcessMonitor::onMonitorThread()
+void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
 {
-    MonitorLog("Monitoring thread started");
-    MonitorLog("Target processes count: %d", m_targetProcesses.size());
-    for (const QString& target : m_targetProcesses) {
-        MonitorLog("  Target: %s", target.toStdString().c_str());
+    QString lowerName = exeName.toLower();
+
+    // Check if this is a target process
+    if (!m_targetProcesses.contains(lowerName)) {
+        return;
     }
 
+    // Check if already injected
+    if (m_injectedProcesses.contains(processId)) {
+        return;
+    }
+
+    MonitorLog("Target process detected: %s (PID %d)", exeName.toStdString().c_str(), processId);
+    emit processDetected(exeName, processId);
+
+    // Suspend, inject, resume
+    bool suspended = suspendProcess(processId);
+    if (suspended) {
+        MonitorLog("Process suspended");
+    } else {
+        MonitorLog("Failed to suspend process, injecting anyway");
+    }
+
+    bool success = injectIntoProcess(processId);
+
+    if (suspended) {
+        resumeProcess(processId);
+        MonitorLog("Process resumed");
+    }
+
+    if (success) {
+        m_injectedProcesses.insert(processId);
+        emit injectionResult(exeName, processId, true, "Injection successful");
+    } else {
+        emit injectionResult(exeName, processId, false, "Injection failed");
+    }
+}
+
+bool ProcessMonitor::suspendProcess(DWORD processId)
+{
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    THREADENTRY32 te32;
+    te32.dwSize = sizeof(te32);
+
+    bool suspended = false;
+    if (Thread32First(hSnapshot, &te32)) {
+        do {
+            if (te32.th32OwnerProcessID == processId) {
+                HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te32.th32ThreadID);
+                if (hThread) {
+                    if (SuspendThread(hThread) != (DWORD)-1) {
+                        suspended = true;
+                    }
+                    CloseHandle(hThread);
+                }
+            }
+        } while (Thread32Next(hSnapshot, &te32));
+    }
+
+    CloseHandle(hSnapshot);
+    return suspended;
+}
+
+bool ProcessMonitor::resumeProcess(DWORD processId)
+{
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    THREADENTRY32 te32;
+    te32.dwSize = sizeof(te32);
+
+    bool resumed = false;
+    if (Thread32First(hSnapshot, &te32)) {
+        do {
+            if (te32.th32OwnerProcessID == processId) {
+                HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, te32.th32ThreadID);
+                if (hThread) {
+                    ResumeThread(hThread);
+                    resumed = true;
+                    CloseHandle(hThread);
+                }
+            }
+        } while (Thread32Next(hSnapshot, &te32));
+    }
+
+    CloseHandle(hSnapshot);
+    return resumed;
+}
+
+void ProcessMonitor::onMonitorThread()
+{
+    MonitorLog("Polling monitoring thread started");
+
     while (m_running) {
-        // Take a snapshot of all processes
         HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (hSnapshot == INVALID_HANDLE_VALUE) {
-            MonitorLog("CreateToolhelp32Snapshot failed");
-            Sleep(500);
+            Sleep(100);
             continue;
         }
 
@@ -146,14 +479,12 @@ void ProcessMonitor::onMonitorThread()
                 QString exeName = QString::fromWCharArray(pe32.szExeFile).toLower();
                 DWORD pid = pe32.th32ProcessID;
 
-                // Check if this is a target process and not already injected
                 if (m_targetProcesses.contains(exeName) &&
                     !m_injectedProcesses.contains(pid)) {
 
                     MonitorLog("Detected target: %s (PID %d)", exeName.toStdString().c_str(), pid);
                     emit processDetected(exeName, pid);
 
-                    // Try to inject
                     if (injectIntoProcess(pid)) {
                         m_injectedProcesses.insert(pid);
                         emit injectionResult(exeName, pid, true, "Injection successful");
@@ -166,7 +497,7 @@ void ProcessMonitor::onMonitorThread()
 
         CloseHandle(hSnapshot);
 
-        // Clean up terminated processes from injected set
+        // Cleanup terminated processes
         QSet<DWORD> toRemove;
         for (DWORD pid : m_injectedProcesses) {
             HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
@@ -182,44 +513,33 @@ void ProcessMonitor::onMonitorThread()
         }
         m_injectedProcesses.subtract(toRemove);
 
-        // Poll every 500ms
-        Sleep(500);
+        Sleep(100);  // Reduced to 100ms for faster detection
     }
 
-    qDebug() << "ProcessMonitor: Monitoring thread stopped";
+    MonitorLog("Polling monitoring thread stopped");
 }
 
 bool ProcessMonitor::createProxySharedMemory(DWORD processId)
 {
-    // Create shared memory for proxy config
     wchar_t sharedMemName[256];
     swprintf_s(sharedMemName, SHARED_MEM_NAME_FORMAT, processId);
 
     HANDLE hMapFile = CreateFileMappingW(
-        INVALID_HANDLE_VALUE,
-        NULL,
-        PAGE_READWRITE,
-        0,
-        SHARED_MEM_SIZE,
-        sharedMemName
-    );
+        INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, SHARED_MEM_SIZE, sharedMemName);
 
     if (!hMapFile) {
-        qDebug() << "ProcessMonitor: Failed to create shared memory for PID" << processId;
+        MonitorLog("Failed to create shared memory for PID %d", processId);
         return false;
     }
 
     ProxyConfig* pConfig = static_cast<ProxyConfig*>(
-        MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE)
-    );
+        MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE));
 
     if (!pConfig) {
         CloseHandle(hMapFile);
-        qDebug() << "ProcessMonitor: Failed to map shared memory";
         return false;
     }
 
-    // Fill in config
     memset(pConfig, 0, sizeof(ProxyConfig));
     pConfig->magic = ProxyConfig::MAGIC;
     pConfig->version = ProxyConfig::VERSION;
@@ -233,10 +553,9 @@ bool ProcessMonitor::createProxySharedMemory(DWORD processId)
     }
 
     UnmapViewOfFile(pConfig);
-    // Note: We intentionally don't close hMapFile here - it needs to stay open
-    // until the target process reads the config
+    // Don't close hMapFile - target process needs it
 
-    qDebug() << "ProcessMonitor: Created shared memory for PID" << processId;
+    MonitorLog("Created shared memory for PID %d", processId);
     return true;
 }
 
@@ -244,75 +563,60 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
 {
     MonitorLog("injectIntoProcess called for PID %d", processId);
 
-    // First create the shared memory with proxy config
     if (!createProxySharedMemory(processId)) {
-        MonitorLog("Failed to create shared memory for PID %d", processId);
         return false;
     }
 
-    // Open the target process
     HANDLE hProcess = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
         PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
-        FALSE, processId
-    );
+        FALSE, processId);
 
     if (!hProcess) {
         MonitorLog("Failed to open process %d, error: %d", processId, GetLastError());
         return false;
     }
 
-    // Get DLL path as wide string
     std::wstring dllPathW = m_dllPath.toStdWString();
     SIZE_T pathSize = (dllPathW.length() + 1) * sizeof(wchar_t);
 
-    // Allocate memory in target process
     LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, pathSize,
                                       MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!remoteMem) {
-        qDebug() << "ProcessMonitor: VirtualAllocEx failed";
         CloseHandle(hProcess);
         return false;
     }
 
-    // Write DLL path to target process
     SIZE_T bytesWritten;
     if (!WriteProcessMemory(hProcess, remoteMem, dllPathW.c_str(), pathSize, &bytesWritten)) {
-        qDebug() << "ProcessMonitor: WriteProcessMemory failed";
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
         return false;
     }
 
-    // Get LoadLibraryW address
     HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
     LPTHREAD_START_ROUTINE loadLibraryAddr =
         (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryW");
 
     if (!loadLibraryAddr) {
-        qDebug() << "ProcessMonitor: GetProcAddress failed";
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
         return false;
     }
 
-    // Create remote thread to load the DLL
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, loadLibraryAddr, remoteMem, 0, NULL);
     if (!hThread) {
-        qDebug() << "ProcessMonitor: CreateRemoteThread failed, error:" << GetLastError();
+        MonitorLog("CreateRemoteThread failed, error: %d", GetLastError());
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
         return false;
     }
 
-    // Wait for the remote thread to complete
     WaitForSingleObject(hThread, 5000);
-
-    // Cleanup
     CloseHandle(hThread);
     VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
     CloseHandle(hProcess);
 
-    qDebug() << "ProcessMonitor: Successfully injected into PID" << processId;
+    MonitorLog("Successfully injected into PID %d", processId);
     return true;
 }
