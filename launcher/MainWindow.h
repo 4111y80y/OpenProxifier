@@ -24,6 +24,10 @@ private slots:
     void onStopMonitorClicked();
     void onAuthCheckChanged(int state);
 
+    // IFEO slots
+    void onInstallIFEOClicked();
+    void onUninstallIFEOClicked();
+
     // ProcessMonitor signals
     void onProcessDetected(const QString& exeName, unsigned long processId);
     void onInjectionResult(const QString& exeName, unsigned long processId, bool success, const QString& message);
@@ -40,6 +44,8 @@ private:
     bool validateProxySettings();
     QString getHookDllPath();
     void updateProxyConfig();
+    void updateAdminStatus();
+    void loadIFEORules();
 };
 
 #endif // MAINWINDOW_H

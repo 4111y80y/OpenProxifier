@@ -141,41 +141,56 @@
      </widget>
     </item>
     <item>
-     <layout class="QHBoxLayout" name="buttonLayout">
-      <item>
-       <widget class="QPushButton" name="startMonitorButton">
-        <property name="text">
-         <string>Start Monitoring</string>
-        </property>
-        <property name="minimumHeight">
-         <number>40</number>
-        </property>
-        <property name="styleSheet">
-         <string>QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }
-QPushButton:hover { background-color: #45a049; }
+     <widget class="QGroupBox" name="ifeoGroup">
+      <property name="title">
+       <string>Auto-Injection (IFEO)</string>
+      </property>
+      <layout class="QHBoxLayout" name="ifeoLayout">
+       <item>
+        <widget class="QPushButton" name="installIFEOButton">
+         <property name="text">
+          <string>Install IFEO Rules</string>
+         </property>
+         <property name="minimumHeight">
+          <number>35</number>
+         </property>
+         <property name="toolTip">
+          <string>Register IFEO rules to auto-inject when listed programs start (requires Admin)</string>
+         </property>
+         <property name="styleSheet">
+          <string>QPushButton { background-color: #2196F3; color: white; font-weight: bold; }
+QPushButton:hover { background-color: #1976D2; }
 QPushButton:disabled { background-color: #cccccc; }</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QPushButton" name="stopMonitorButton">
-        <property name="text">
-         <string>Stop Monitoring</string>
-        </property>
-        <property name="minimumHeight">
-         <number>40</number>
-        </property>
-        <property name="enabled">
-         <bool>false</bool>
-        </property>
-        <property name="styleSheet">
-         <string>QPushButton { background-color: #f44336; color: white; font-weight: bold; }
-QPushButton:hover { background-color: #da190b; }
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="uninstallIFEOButton">
+         <property name="text">
+          <string>Uninstall IFEO Rules</string>
+         </property>
+         <property name="minimumHeight">
+          <number>35</number>
+         </property>
+         <property name="toolTip">
+          <string>Remove all IFEO rules (requires Admin)</string>
+         </property>
+         <property name="styleSheet">
+          <string>QPushButton { background-color: #FF9800; color: white; font-weight: bold; }
+QPushButton:hover { background-color: #F57C00; }
 QPushButton:disabled { background-color: #cccccc; }</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="adminLabel">
+         <property name="text">
+          <string></string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </item>
     <item>
      <widget class="QGroupBox" name="logGroup">

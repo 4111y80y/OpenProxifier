@@ -2,6 +2,7 @@
 #include "ui_MainWindow.h"
 #include "ProcessMonitor.h"
 #include "ProxyConfig.h"
+#include "IFEOManager.h"
 #include <QMessageBox>
 #include <QDir>
 #include <QCoreApplication>
@@ -20,9 +21,11 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect UI signals
     connect(ui->addExeButton, &QPushButton::clicked, this, &MainWindow::onAddExeClicked);
     connect(ui->removeExeButton, &QPushButton::clicked, this, &MainWindow::onRemoveExeClicked);
-    connect(ui->startMonitorButton, &QPushButton::clicked, this, &MainWindow::onStartMonitorClicked);
-    connect(ui->stopMonitorButton, &QPushButton::clicked, this, &MainWindow::onStopMonitorClicked);
     connect(ui->authCheckBox, &QCheckBox::stateChanged, this, &MainWindow::onAuthCheckChanged);
+
+    // Connect IFEO buttons
+    connect(ui->installIFEOButton, &QPushButton::clicked, this, &MainWindow::onInstallIFEOClicked);
+    connect(ui->uninstallIFEOButton, &QPushButton::clicked, this, &MainWindow::onUninstallIFEOClicked);
 
     // Connect ProcessMonitor signals
     connect(m_monitor, &ProcessMonitor::processDetected, this, &MainWindow::onProcessDetected);
@@ -53,8 +56,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     updateStatus("Ready");
 
-    // Auto-start monitoring after a short delay
-    QTimer::singleShot(1000, this, &MainWindow::onStartMonitorClicked);
+    // Update admin status display
+    updateAdminStatus();
+
+    // Load existing IFEO rules
+    loadIFEORules();
 }
 
 MainWindow::~MainWindow()
@@ -158,8 +164,6 @@ void MainWindow::onInjectionResult(const QString& exeName, unsigned long process
 
 void MainWindow::onMonitoringStarted()
 {
-    ui->startMonitorButton->setEnabled(false);
-    ui->stopMonitorButton->setEnabled(true);
     ui->proxyGroup->setEnabled(false);
     ui->targetGroup->setEnabled(false);
     updateStatus("Monitoring...");
@@ -168,8 +172,6 @@ void MainWindow::onMonitoringStarted()
 
 void MainWindow::onMonitoringStopped()
 {
-    ui->startMonitorButton->setEnabled(true);
-    ui->stopMonitorButton->setEnabled(false);
     ui->proxyGroup->setEnabled(true);
     ui->targetGroup->setEnabled(true);
     updateStatus("Stopped");
@@ -252,4 +254,148 @@ void MainWindow::updateProxyConfig()
         ui->usernameEdit->text(),
         ui->passwordEdit->text()
     );
+}
+
+void MainWindow::updateAdminStatus()
+{
+    using namespace MiniProxifier;
+    bool isAdmin = IFEOManager::IsRunningAsAdmin();
+
+    if (isAdmin) {
+        ui->adminLabel->setText("[Admin]");
+        ui->adminLabel->setStyleSheet("color: green; font-weight: bold;");
+    } else {
+        ui->adminLabel->setText("[Not Admin - Click Install to elevate]");
+        ui->adminLabel->setStyleSheet("color: orange;");
+    }
+}
+
+void MainWindow::loadIFEORules()
+{
+    using namespace MiniProxifier;
+    auto rules = IFEOManager::Instance().GetAllRules();
+
+    for (const auto& rule : rules) {
+        QString exeName = QString::fromStdWString(rule.exeName);
+
+        // Check if already in list
+        bool found = false;
+        for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+            if (ui->exeListWidget->item(i)->text().toLower() == exeName.toLower()) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            ui->exeListWidget->addItem(exeName);
+        }
+
+        appendLog(QString("[IFEO] Found existing rule: %1").arg(exeName));
+    }
+}
+
+void MainWindow::onInstallIFEOClicked()
+{
+    using namespace MiniProxifier;
+
+    if (ui->exeListWidget->count() == 0) {
+        QMessageBox::warning(this, "No Targets", "Please add at least one target executable.");
+        return;
+    }
+
+    // Check admin status
+    if (!IFEOManager::IsRunningAsAdmin()) {
+        int result = QMessageBox::question(this, "Administrator Required",
+            "Installing IFEO rules requires administrator privileges.\n\n"
+            "Do you want to restart as administrator?",
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (result == QMessageBox::Yes) {
+            IFEOManager::RequestElevation();
+        }
+        return;
+    }
+
+    // Install rules for all listed executables
+    int successCount = 0;
+    int failCount = 0;
+
+    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+        QString exeName = ui->exeListWidget->item(i)->text();
+
+        if (IFEOManager::Instance().AddRule(exeName.toStdWString())) {
+            appendLog(QString("[SUCCESS] IFEO rule installed: %1").arg(exeName));
+            successCount++;
+        } else {
+            QString error = QString::fromStdWString(IFEOManager::Instance().GetLastError());
+            appendLog(QString("[FAILED] IFEO rule for %1: %2").arg(exeName).arg(error));
+            failCount++;
+        }
+    }
+
+    // Show summary
+    QString injectorPath = QString::fromStdWString(IFEOManager::Instance().GetInjectorPath());
+    appendLog(QString("[INFO] Injector path: %1").arg(injectorPath));
+
+    if (failCount == 0) {
+        QMessageBox::information(this, "Success",
+            QString("Successfully installed %1 IFEO rule(s).\n\n"
+                    "Target programs will now automatically use the SOCKS5 proxy "
+                    "when launched from anywhere.").arg(successCount));
+        updateStatus("IFEO Rules Installed");
+    } else {
+        QMessageBox::warning(this, "Partial Success",
+            QString("Installed %1 rule(s), %2 failed.").arg(successCount).arg(failCount));
+    }
+}
+
+void MainWindow::onUninstallIFEOClicked()
+{
+    using namespace MiniProxifier;
+
+    // Check admin status
+    if (!IFEOManager::IsRunningAsAdmin()) {
+        int result = QMessageBox::question(this, "Administrator Required",
+            "Removing IFEO rules requires administrator privileges.\n\n"
+            "Do you want to restart as administrator?",
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (result == QMessageBox::Yes) {
+            IFEOManager::RequestElevation();
+        }
+        return;
+    }
+
+    // Get all existing rules
+    auto rules = IFEOManager::Instance().GetAllRules();
+
+    if (rules.empty()) {
+        QMessageBox::information(this, "No Rules", "No IFEO rules are currently installed.");
+        return;
+    }
+
+    int result = QMessageBox::question(this, "Confirm Uninstall",
+        QString("Are you sure you want to remove %1 IFEO rule(s)?").arg(rules.size()),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (result != QMessageBox::Yes) {
+        return;
+    }
+
+    // Remove all rules
+    int successCount = 0;
+    for (const auto& rule : rules) {
+        if (IFEOManager::Instance().RemoveRule(rule.exeName)) {
+            appendLog(QString("[SUCCESS] IFEO rule removed: %1").arg(QString::fromStdWString(rule.exeName)));
+            successCount++;
+        } else {
+            QString error = QString::fromStdWString(IFEOManager::Instance().GetLastError());
+            appendLog(QString("[FAILED] Remove rule %1: %2").arg(QString::fromStdWString(rule.exeName)).arg(error));
+        }
+    }
+
+    QMessageBox::information(this, "Complete",
+        QString("Removed %1 IFEO rule(s).").arg(successCount));
+    updateStatus("IFEO Rules Removed");
 }
