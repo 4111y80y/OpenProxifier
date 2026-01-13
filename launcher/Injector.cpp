@@ -54,8 +54,9 @@ Injector::InjectResult Injector::LaunchAndInject(
     }
 
     // Inject DLL
-    if (!InjectDll(pi.hProcess, dllPath)) {
-        result.errorMessage = L"DLL injection failed: " + GetLastErrorString();
+    std::wstring injectError;
+    if (!InjectDll(pi.hProcess, dllPath, injectError)) {
+        result.errorMessage = L"DLL injection failed: " + injectError;
         CloseHandle(hMapFile);
         TerminateProcess(pi.hProcess, 1);
         CloseHandle(pi.hProcess);
@@ -74,7 +75,7 @@ Injector::InjectResult Injector::LaunchAndInject(
     return result;
 }
 
-bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
+bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath, std::wstring& errorOut)
 {
     // Calculate size needed for DLL path (in bytes, including null terminator)
     SIZE_T pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
@@ -89,6 +90,7 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
     );
 
     if (!remoteMem) {
+        errorOut = L"VirtualAllocEx failed: " + GetLastErrorString();
         return false;
     }
 
@@ -103,6 +105,7 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
     );
 
     if (!written || bytesWritten != pathSize) {
+        errorOut = L"WriteProcessMemory failed: " + GetLastErrorString();
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         return false;
     }
@@ -110,6 +113,7 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
     // Get LoadLibraryW address (same in all processes on same system)
     HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
     if (!hKernel32) {
+        errorOut = L"GetModuleHandleW(kernel32) failed";
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         return false;
     }
@@ -119,6 +123,7 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
             GetProcAddress(hKernel32, "LoadLibraryW"));
 
     if (!loadLibraryAddr) {
+        errorOut = L"GetProcAddress(LoadLibraryW) failed";
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         return false;
     }
@@ -135,12 +140,19 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
     );
 
     if (!hRemoteThread) {
+        errorOut = L"CreateRemoteThread failed: " + GetLastErrorString();
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         return false;
     }
 
     // Wait for LoadLibraryW to complete
-    WaitForSingleObject(hRemoteThread, 5000);
+    DWORD waitResult = WaitForSingleObject(hRemoteThread, 10000);
+    if (waitResult == WAIT_TIMEOUT) {
+        errorOut = L"LoadLibraryW timed out";
+        CloseHandle(hRemoteThread);
+        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+        return false;
+    }
 
     // Check if LoadLibraryW succeeded
     DWORD exitCode = 0;
@@ -150,7 +162,12 @@ bool Injector::InjectDll(HANDLE hProcess, const std::wstring& dllPath)
     VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
 
     // exitCode is the return value of LoadLibraryW (HMODULE or NULL)
-    return exitCode != 0;
+    if (exitCode == 0) {
+        errorOut = L"LoadLibraryW returned NULL - DLL failed to load. Check DLL path: " + dllPath;
+        return false;
+    }
+
+    return true;
 }
 
 bool Injector::CreateSharedMemory(DWORD processId, const ProxyConfig& config, HANDLE& hMapFile)

@@ -25,8 +25,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->passwordEdit->setEnabled(false);
 
     // Set default values
+    ui->exePathEdit->setText("C:\\Windows\\System32\\cmd.exe");
     ui->proxyHostEdit->setText("127.0.0.1");
-    ui->proxyPortSpin->setValue(1080);
+    ui->proxyPortSpin->setValue(1081);
+    ui->cmdLineEdit->setText("/k curl https://only-111033-113-74-8-82.nstool.321fenx.com/info.js?referer=https://nstool.netease.com/info.js");
 
     updateStatus("Ready");
 }
@@ -63,6 +65,9 @@ void MainWindow::onLaunchClicked()
         QMessageBox::critical(this, "Error", "Hook DLL not found!");
         return;
     }
+
+    // Debug: Show DLL path
+    updateStatus(QString("DLL: %1").arg(dllPath));
 
     updateStatus("Launching process...");
 

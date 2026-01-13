@@ -28,7 +28,7 @@ public:
 
 private:
     // Inject DLL into a suspended process
-    static bool InjectDll(HANDLE hProcess, const std::wstring& dllPath);
+    static bool InjectDll(HANDLE hProcess, const std::wstring& dllPath, std::wstring& errorOut);
 
     // Create shared memory with proxy config
     static bool CreateSharedMemory(DWORD processId, const ProxyConfig& config, HANDLE& hMapFile);
