@@ -47,7 +47,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->passwordEdit->setEnabled(false);
 
     // Set default values
-    ui->proxyHostEdit->setText("172.30.156.245");
+    ui->proxyHostEdit->setText("127.0.0.1");
     ui->proxyPortSpin->setValue(1081);
 
     // Set DLL path

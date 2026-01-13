@@ -198,10 +198,10 @@ int wmain(int argc, wchar_t* argv[]) {
     // Default proxy if not set
     if (proxyIp == 0) {
         struct in_addr addr;
-        inet_pton(AF_INET, "172.30.156.245", &addr);
+        inet_pton(AF_INET, "127.0.0.1", &addr);
         proxyIp = addr.s_addr;
         proxyPort = htons(1081);
-        DebugLog("Using default proxy: 172.30.156.245:1081");
+        DebugLog("Using default proxy: 127.0.0.1:1081");
     }
 
     // Create process in suspended state
