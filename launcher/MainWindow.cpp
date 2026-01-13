@@ -2,14 +2,17 @@
 #include "ui_MainWindow.h"
 #include "ProcessMonitor.h"
 #include "ProxyConfig.h"
-#include "IFEOManager.h"
 #include <QMessageBox>
 #include <QDir>
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QTimer>
+#include <QFileDialog>
+#include <QProcess>
+#include <QStandardPaths>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
+#include <shlobj.h>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -23,9 +26,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->removeExeButton, &QPushButton::clicked, this, &MainWindow::onRemoveExeClicked);
     connect(ui->authCheckBox, &QCheckBox::stateChanged, this, &MainWindow::onAuthCheckChanged);
 
-    // Connect IFEO buttons
-    connect(ui->installIFEOButton, &QPushButton::clicked, this, &MainWindow::onInstallIFEOClicked);
-    connect(ui->uninstallIFEOButton, &QPushButton::clicked, this, &MainWindow::onUninstallIFEOClicked);
+    // Connect launch option buttons
+    connect(ui->browseButton, &QPushButton::clicked, this, &MainWindow::onBrowseClicked);
+    connect(ui->launchButton, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
+    connect(ui->createShortcutButton, &QPushButton::clicked, this, &MainWindow::onCreateShortcutClicked);
 
     // Connect ProcessMonitor signals
     connect(m_monitor, &ProcessMonitor::processDetected, this, &MainWindow::onProcessDetected);
@@ -42,9 +46,6 @@ MainWindow::MainWindow(QWidget *parent)
     ui->proxyHostEdit->setText("172.30.156.245");
     ui->proxyPortSpin->setValue(1081);
 
-    // Add default target process
-    ui->exeListWidget->addItem("curl.exe");
-
     // Set DLL path
     QString dllPath = getHookDllPath();
     if (!dllPath.isEmpty()) {
@@ -54,13 +55,15 @@ MainWindow::MainWindow(QWidget *parent)
         appendLog("[ERROR] Hook DLL not found!");
     }
 
+    // Check injector
+    QString injectorPath = getInjectorPath();
+    if (!injectorPath.isEmpty()) {
+        appendLog(QString("Injector: %1").arg(injectorPath));
+    } else {
+        appendLog("[ERROR] ProxifierInjector not found!");
+    }
+
     updateStatus("Ready");
-
-    // Update admin status display
-    updateAdminStatus();
-
-    // Load existing IFEO rules
-    loadIFEORules();
 }
 
 MainWindow::~MainWindow()
@@ -91,7 +94,7 @@ void MainWindow::onAddExeClicked()
 
     ui->exeListWidget->addItem(exeName);
     ui->exeNameEdit->clear();
-    appendLog(QString("Added target: %1").arg(exeName));
+    appendLog(QString("Added to favorites: %1").arg(exeName));
 }
 
 void MainWindow::onRemoveExeClicked()
@@ -100,45 +103,8 @@ void MainWindow::onRemoveExeClicked()
     if (item) {
         QString exeName = item->text();
         delete ui->exeListWidget->takeItem(ui->exeListWidget->row(item));
-        appendLog(QString("Removed target: %1").arg(exeName));
+        appendLog(QString("Removed from favorites: %1").arg(exeName));
     }
-}
-
-void MainWindow::onStartMonitorClicked()
-{
-    if (!validateProxySettings()) {
-        return;
-    }
-
-    if (ui->exeListWidget->count() == 0) {
-        QMessageBox::warning(this, "No Targets", "Please add at least one target executable.");
-        return;
-    }
-
-    QString dllPath = getHookDllPath();
-    if (dllPath.isEmpty()) {
-        QMessageBox::critical(this, "Error", "Hook DLL not found!");
-        return;
-    }
-
-    // Configure monitor
-    m_monitor->setDllPath(dllPath);
-    m_monitor->clearTargetProcesses();
-
-    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
-        m_monitor->addTargetProcess(ui->exeListWidget->item(i)->text());
-    }
-
-    // Set proxy config
-    updateProxyConfig();
-
-    // Start monitoring
-    m_monitor->startMonitoring();
-}
-
-void MainWindow::onStopMonitorClicked()
-{
-    m_monitor->stopMonitoring();
 }
 
 void MainWindow::onAuthCheckChanged(int state)
@@ -146,6 +112,138 @@ void MainWindow::onAuthCheckChanged(int state)
     bool enabled = (state == Qt::Checked);
     ui->usernameEdit->setEnabled(enabled);
     ui->passwordEdit->setEnabled(enabled);
+}
+
+void MainWindow::onBrowseClicked()
+{
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "Select Executable",
+        QString(),
+        "Executables (*.exe);;All Files (*.*)"
+    );
+
+    if (!fileName.isEmpty()) {
+        ui->exePathEdit->setText(fileName);
+    }
+}
+
+void MainWindow::onLaunchClicked()
+{
+    if (!validateProxySettings()) {
+        return;
+    }
+
+    QString exePath = ui->exePathEdit->text().trimmed();
+    if (exePath.isEmpty()) {
+        QMessageBox::warning(this, "No Executable", "Please select an executable to launch.");
+        return;
+    }
+
+    QString injectorPath = getInjectorPath();
+    if (injectorPath.isEmpty()) {
+        QMessageBox::critical(this, "Error", "ProxifierInjector not found!");
+        return;
+    }
+
+    // Save proxy settings to environment variable
+    saveProxyToEnv();
+
+    // Build arguments
+    QStringList args;
+    args << exePath;
+
+    QString userArgs = ui->argsEdit->text().trimmed();
+    if (!userArgs.isEmpty()) {
+        args << userArgs.split(' ', Qt::SkipEmptyParts);
+    }
+
+    appendLog(QString("[LAUNCH] %1 %2").arg(exePath).arg(userArgs));
+
+    // Start the process
+    QProcess* process = new QProcess(this);
+    process->setProgram(injectorPath);
+    process->setArguments(args);
+
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            [this, process, exePath](int exitCode, QProcess::ExitStatus) {
+        appendLog(QString("[EXIT] %1 exited with code %2").arg(QFileInfo(exePath).fileName()).arg(exitCode));
+        process->deleteLater();
+    });
+
+    process->start();
+
+    if (process->waitForStarted(3000)) {
+        appendLog(QString("[SUCCESS] Launched %1 through proxy").arg(QFileInfo(exePath).fileName()));
+        updateStatus("Program launched");
+    } else {
+        appendLog(QString("[ERROR] Failed to launch: %1").arg(process->errorString()));
+        QMessageBox::critical(this, "Launch Failed", process->errorString());
+    }
+}
+
+void MainWindow::onCreateShortcutClicked()
+{
+    QString exePath = ui->exePathEdit->text().trimmed();
+    if (exePath.isEmpty()) {
+        QMessageBox::warning(this, "No Executable", "Please select an executable first.");
+        return;
+    }
+
+    if (!validateProxySettings()) {
+        return;
+    }
+
+    QString injectorPath = getInjectorPath();
+    if (injectorPath.isEmpty()) {
+        QMessageBox::critical(this, "Error", "ProxifierInjector not found!");
+        return;
+    }
+
+    // Get executable name for shortcut
+    QFileInfo fileInfo(exePath);
+    QString exeName = fileInfo.completeBaseName();
+
+    // Get desktop path
+    QString desktopPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    QString shortcutPath = QDir(desktopPath).filePath(QString("Proxified %1.lnk").arg(exeName));
+
+    // Build proxy environment string
+    QString proxyEnv = QString("%1:%2")
+        .arg(ui->proxyHostEdit->text())
+        .arg(ui->proxyPortSpin->value());
+
+    // Create shortcut using PowerShell
+    QString psScript = QString(
+        "$ws = New-Object -ComObject WScript.Shell; "
+        "$s = $ws.CreateShortcut('%1'); "
+        "$s.TargetPath = '%2'; "
+        "$s.Arguments = '\"%3\"'; "
+        "$s.WorkingDirectory = '%4'; "
+        "$s.Description = 'Launches %5 through SOCKS5 proxy'; "
+        "$s.Save()"
+    ).arg(shortcutPath.replace("/", "\\"))
+     .arg(injectorPath.replace("/", "\\"))
+     .arg(exePath.replace("/", "\\"))
+     .arg(fileInfo.absolutePath().replace("/", "\\"))
+     .arg(exeName);
+
+    QProcess ps;
+    ps.start("powershell", QStringList() << "-Command" << psScript);
+    ps.waitForFinished(5000);
+
+    if (QFile::exists(shortcutPath)) {
+        appendLog(QString("[SUCCESS] Created shortcut: %1").arg(shortcutPath));
+        QMessageBox::information(this, "Shortcut Created",
+            QString("Desktop shortcut created:\n%1\n\n"
+                    "Note: Set PROXIFIER_PROXY=%2 environment variable "
+                    "or the default proxy will be used.")
+            .arg(shortcutPath).arg(proxyEnv));
+        updateStatus("Shortcut created");
+    } else {
+        appendLog("[ERROR] Failed to create shortcut");
+        QMessageBox::critical(this, "Error", "Failed to create shortcut.");
+    }
 }
 
 void MainWindow::onProcessDetected(const QString& exeName, unsigned long processId)
@@ -223,7 +321,6 @@ QString MainWindow::getHookDllPath()
 {
     QString appDir = QCoreApplication::applicationDirPath();
 
-    // Determine architecture suffix based on current process
 #ifdef _WIN64
     QString dllName = "MiniProxifierHook_x64.dll";
 #else
@@ -234,6 +331,25 @@ QString MainWindow::getHookDllPath()
 
     if (QFile::exists(dllPath)) {
         return dllPath;
+    }
+
+    return QString();
+}
+
+QString MainWindow::getInjectorPath()
+{
+    QString appDir = QCoreApplication::applicationDirPath();
+
+#ifdef _WIN64
+    QString injectorName = "ProxifierInjector_x64.exe";
+#else
+    QString injectorName = "ProxifierInjector_x86.exe";
+#endif
+
+    QString injectorPath = QDir(appDir).filePath(injectorName);
+
+    if (QFile::exists(injectorPath)) {
+        return injectorPath;
     }
 
     return QString();
@@ -256,146 +372,12 @@ void MainWindow::updateProxyConfig()
     );
 }
 
-void MainWindow::updateAdminStatus()
+void MainWindow::saveProxyToEnv()
 {
-    using namespace MiniProxifier;
-    bool isAdmin = IFEOManager::IsRunningAsAdmin();
+    QString proxyValue = QString("%1:%2")
+        .arg(ui->proxyHostEdit->text())
+        .arg(ui->proxyPortSpin->value());
 
-    if (isAdmin) {
-        ui->adminLabel->setText("[Admin]");
-        ui->adminLabel->setStyleSheet("color: green; font-weight: bold;");
-    } else {
-        ui->adminLabel->setText("[Not Admin - Click Install to elevate]");
-        ui->adminLabel->setStyleSheet("color: orange;");
-    }
-}
-
-void MainWindow::loadIFEORules()
-{
-    using namespace MiniProxifier;
-    auto rules = IFEOManager::Instance().GetAllRules();
-
-    for (const auto& rule : rules) {
-        QString exeName = QString::fromStdWString(rule.exeName);
-
-        // Check if already in list
-        bool found = false;
-        for (int i = 0; i < ui->exeListWidget->count(); ++i) {
-            if (ui->exeListWidget->item(i)->text().toLower() == exeName.toLower()) {
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
-            ui->exeListWidget->addItem(exeName);
-        }
-
-        appendLog(QString("[IFEO] Found existing rule: %1").arg(exeName));
-    }
-}
-
-void MainWindow::onInstallIFEOClicked()
-{
-    using namespace MiniProxifier;
-
-    if (ui->exeListWidget->count() == 0) {
-        QMessageBox::warning(this, "No Targets", "Please add at least one target executable.");
-        return;
-    }
-
-    // Check admin status
-    if (!IFEOManager::IsRunningAsAdmin()) {
-        int result = QMessageBox::question(this, "Administrator Required",
-            "Installing IFEO rules requires administrator privileges.\n\n"
-            "Do you want to restart as administrator?",
-            QMessageBox::Yes | QMessageBox::No);
-
-        if (result == QMessageBox::Yes) {
-            IFEOManager::RequestElevation();
-        }
-        return;
-    }
-
-    // Install rules for all listed executables
-    int successCount = 0;
-    int failCount = 0;
-
-    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
-        QString exeName = ui->exeListWidget->item(i)->text();
-
-        if (IFEOManager::Instance().AddRule(exeName.toStdWString())) {
-            appendLog(QString("[SUCCESS] IFEO rule installed: %1").arg(exeName));
-            successCount++;
-        } else {
-            QString error = QString::fromStdWString(IFEOManager::Instance().GetLastError());
-            appendLog(QString("[FAILED] IFEO rule for %1: %2").arg(exeName).arg(error));
-            failCount++;
-        }
-    }
-
-    // Show summary
-    QString injectorPath = QString::fromStdWString(IFEOManager::Instance().GetInjectorPath());
-    appendLog(QString("[INFO] Injector path: %1").arg(injectorPath));
-
-    if (failCount == 0) {
-        QMessageBox::information(this, "Success",
-            QString("Successfully installed %1 IFEO rule(s).\n\n"
-                    "Target programs will now automatically use the SOCKS5 proxy "
-                    "when launched from anywhere.").arg(successCount));
-        updateStatus("IFEO Rules Installed");
-    } else {
-        QMessageBox::warning(this, "Partial Success",
-            QString("Installed %1 rule(s), %2 failed.").arg(successCount).arg(failCount));
-    }
-}
-
-void MainWindow::onUninstallIFEOClicked()
-{
-    using namespace MiniProxifier;
-
-    // Check admin status
-    if (!IFEOManager::IsRunningAsAdmin()) {
-        int result = QMessageBox::question(this, "Administrator Required",
-            "Removing IFEO rules requires administrator privileges.\n\n"
-            "Do you want to restart as administrator?",
-            QMessageBox::Yes | QMessageBox::No);
-
-        if (result == QMessageBox::Yes) {
-            IFEOManager::RequestElevation();
-        }
-        return;
-    }
-
-    // Get all existing rules
-    auto rules = IFEOManager::Instance().GetAllRules();
-
-    if (rules.empty()) {
-        QMessageBox::information(this, "No Rules", "No IFEO rules are currently installed.");
-        return;
-    }
-
-    int result = QMessageBox::question(this, "Confirm Uninstall",
-        QString("Are you sure you want to remove %1 IFEO rule(s)?").arg(rules.size()),
-        QMessageBox::Yes | QMessageBox::No);
-
-    if (result != QMessageBox::Yes) {
-        return;
-    }
-
-    // Remove all rules
-    int successCount = 0;
-    for (const auto& rule : rules) {
-        if (IFEOManager::Instance().RemoveRule(rule.exeName)) {
-            appendLog(QString("[SUCCESS] IFEO rule removed: %1").arg(QString::fromStdWString(rule.exeName)));
-            successCount++;
-        } else {
-            QString error = QString::fromStdWString(IFEOManager::Instance().GetLastError());
-            appendLog(QString("[FAILED] Remove rule %1: %2").arg(QString::fromStdWString(rule.exeName)).arg(error));
-        }
-    }
-
-    QMessageBox::information(this, "Complete",
-        QString("Removed %1 IFEO rule(s).").arg(successCount));
-    updateStatus("IFEO Rules Removed");
+    SetEnvironmentVariableA("PROXIFIER_PROXY", proxyValue.toStdString().c_str());
+    appendLog(QString("[INFO] Set PROXIFIER_PROXY=%1").arg(proxyValue));
 }

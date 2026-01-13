@@ -8,8 +8,6 @@ qt_add_executable(MiniProxifier
     Injector.h
     ProcessMonitor.cpp
     ProcessMonitor.h
-    IFEOManager.cpp
-    IFEOManager.h
 )
 
 # Link dependencies
@@ -20,8 +18,6 @@ target_link_libraries(MiniProxifier PRIVATE
     ws2_32
     kernel32
     psapi
-    shlwapi
-    advapi32
 )
 
 # Set Windows GUI application

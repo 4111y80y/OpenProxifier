@@ -141,53 +141,86 @@
      </widget>
     </item>
     <item>
-     <widget class="QGroupBox" name="ifeoGroup">
+     <widget class="QGroupBox" name="launchGroup">
       <property name="title">
-       <string>Auto-Injection (IFEO)</string>
+       <string>Launch Options</string>
       </property>
-      <layout class="QHBoxLayout" name="ifeoLayout">
+      <layout class="QVBoxLayout" name="launchLayout">
        <item>
-        <widget class="QPushButton" name="installIFEOButton">
-         <property name="text">
-          <string>Install IFEO Rules</string>
-         </property>
-         <property name="minimumHeight">
-          <number>35</number>
-         </property>
-         <property name="toolTip">
-          <string>Register IFEO rules to auto-inject when listed programs start (requires Admin)</string>
-         </property>
-         <property name="styleSheet">
-          <string>QPushButton { background-color: #2196F3; color: white; font-weight: bold; }
+        <layout class="QHBoxLayout" name="exePathLayout">
+         <item>
+          <widget class="QLineEdit" name="exePathEdit">
+           <property name="placeholderText">
+            <string>Select executable to launch with proxy...</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browseButton">
+           <property name="text">
+            <string>Browse...</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="argsLayout">
+         <item>
+          <widget class="QLabel" name="argsLabel">
+           <property name="text">
+            <string>Arguments:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="argsEdit">
+           <property name="placeholderText">
+            <string>Optional command line arguments</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="actionLayout">
+         <item>
+          <widget class="QPushButton" name="launchButton">
+           <property name="text">
+            <string>Launch with Proxy</string>
+           </property>
+           <property name="minimumHeight">
+            <number>40</number>
+           </property>
+           <property name="toolTip">
+            <string>Launch the selected program through SOCKS5 proxy</string>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }
+QPushButton:hover { background-color: #45a049; }
+QPushButton:disabled { background-color: #cccccc; }</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="createShortcutButton">
+           <property name="text">
+            <string>Create Desktop Shortcut</string>
+           </property>
+           <property name="minimumHeight">
+            <number>40</number>
+           </property>
+           <property name="toolTip">
+            <string>Create a desktop shortcut that launches this program through proxy</string>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton { background-color: #2196F3; color: white; font-weight: bold; }
 QPushButton:hover { background-color: #1976D2; }
 QPushButton:disabled { background-color: #cccccc; }</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="uninstallIFEOButton">
-         <property name="text">
-          <string>Uninstall IFEO Rules</string>
-         </property>
-         <property name="minimumHeight">
-          <number>35</number>
-         </property>
-         <property name="toolTip">
-          <string>Remove all IFEO rules (requires Admin)</string>
-         </property>
-         <property name="styleSheet">
-          <string>QPushButton { background-color: #FF9800; color: white; font-weight: bold; }
-QPushButton:hover { background-color: #F57C00; }
-QPushButton:disabled { background-color: #cccccc; }</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QLabel" name="adminLabel">
-         <property name="text">
-          <string></string>
-         </property>
-        </widget>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
       </layout>
      </widget>
