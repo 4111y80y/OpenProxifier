@@ -22,6 +22,10 @@ private slots:
     void onRemoveExeClicked();
     void onAuthCheckChanged(int state);
 
+    // Monitoring slots
+    void onStartMonitorClicked();
+    void onStopMonitorClicked();
+
     // Launch options slots
     void onBrowseClicked();
     void onLaunchClicked();

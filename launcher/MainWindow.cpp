@@ -26,6 +26,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->removeExeButton, &QPushButton::clicked, this, &MainWindow::onRemoveExeClicked);
     connect(ui->authCheckBox, &QCheckBox::stateChanged, this, &MainWindow::onAuthCheckChanged);
 
+    // Connect monitoring buttons
+    connect(ui->startMonitorButton, &QPushButton::clicked, this, &MainWindow::onStartMonitorClicked);
+    connect(ui->stopMonitorButton, &QPushButton::clicked, this, &MainWindow::onStopMonitorClicked);
+
     // Connect launch option buttons
     connect(ui->browseButton, &QPushButton::clicked, this, &MainWindow::onBrowseClicked);
     connect(ui->launchButton, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
@@ -112,6 +116,43 @@ void MainWindow::onAuthCheckChanged(int state)
     bool enabled = (state == Qt::Checked);
     ui->usernameEdit->setEnabled(enabled);
     ui->passwordEdit->setEnabled(enabled);
+}
+
+void MainWindow::onStartMonitorClicked()
+{
+    if (!validateProxySettings()) {
+        return;
+    }
+
+    if (ui->exeListWidget->count() == 0) {
+        QMessageBox::warning(this, "No Targets", "Please add at least one target executable to monitor.");
+        return;
+    }
+
+    QString dllPath = getHookDllPath();
+    if (dllPath.isEmpty()) {
+        QMessageBox::critical(this, "Error", "Hook DLL not found!");
+        return;
+    }
+
+    // Configure monitor
+    m_monitor->setDllPath(dllPath);
+    m_monitor->clearTargetProcesses();
+
+    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+        m_monitor->addTargetProcess(ui->exeListWidget->item(i)->text());
+    }
+
+    // Set proxy config
+    updateProxyConfig();
+
+    // Start monitoring
+    m_monitor->startMonitoring();
+}
+
+void MainWindow::onStopMonitorClicked()
+{
+    m_monitor->stopMonitoring();
 }
 
 void MainWindow::onBrowseClicked()
@@ -262,17 +303,23 @@ void MainWindow::onInjectionResult(const QString& exeName, unsigned long process
 
 void MainWindow::onMonitoringStarted()
 {
+    ui->startMonitorButton->setEnabled(false);
+    ui->stopMonitorButton->setEnabled(true);
     ui->proxyGroup->setEnabled(false);
     ui->targetGroup->setEnabled(false);
+    ui->launchGroup->setEnabled(false);
     updateStatus("Monitoring...");
     appendLog("[INFO] Monitoring started - waiting for target processes...");
 }
 
 void MainWindow::onMonitoringStopped()
 {
+    ui->startMonitorButton->setEnabled(true);
+    ui->stopMonitorButton->setEnabled(false);
     ui->proxyGroup->setEnabled(true);
     ui->targetGroup->setEnabled(true);
-    updateStatus("Stopped");
+    ui->launchGroup->setEnabled(true);
+    updateStatus("Ready");
     appendLog("[INFO] Monitoring stopped");
 }
 
