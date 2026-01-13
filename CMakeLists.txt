@@ -1,4 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Auto-configure vcpkg if not set
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    if(EXISTS "D:/GitHub/vcpkg/scripts/buildsystems/vcpkg.cmake")
+        set(CMAKE_TOOLCHAIN_FILE "D:/GitHub/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+    endif()
+endif()
+
+# Auto-configure Qt6 path if not set
+if(NOT DEFINED CMAKE_PREFIX_PATH)
+    if(EXISTS "D:/Qt/6.10.1/msvc2022_64")
+        set(CMAKE_PREFIX_PATH "D:/Qt/6.10.1/msvc2022_64" CACHE STRING "")
+    endif()
+endif()
+
 project(MiniProxifier VERSION 1.0.0 LANGUAGES CXX)
 
 # C++17 standard
