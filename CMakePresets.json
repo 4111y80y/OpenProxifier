@@ -2,63 +2,78 @@
   "version": 6,
   "configurePresets": [
     {
-      "name": "x64-release",
-      "displayName": "x64 Release",
-      "description": "64-bit Release build",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
-      "binaryDir": "${sourceDir}/build_x64",
+      "name": "default",
+      "hidden": true,
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "D:/GitHub/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.1/msvc2022_64",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.1/msvc2022_64"
       }
     },
     {
       "name": "x64-debug",
       "displayName": "x64 Debug",
       "description": "64-bit Debug build",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
-      "binaryDir": "${sourceDir}/build_x64",
+      "inherits": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/x64-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "D:/GitHub/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.1/msvc2022_64",
         "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "x64-release",
+      "displayName": "x64 Release",
+      "description": "64-bit Release build",
+      "inherits": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/x64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "x86-debug",
+      "displayName": "x86 Debug",
+      "description": "32-bit Debug build",
+      "inherits": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/x86-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x86-windows"
       }
     },
     {
       "name": "x86-release",
       "displayName": "x86 Release",
       "description": "32-bit Release build",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "Win32",
-      "binaryDir": "${sourceDir}/build_x86",
+      "inherits": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/x86-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "D:/GitHub/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "CMAKE_PREFIX_PATH": "D:/Qt/6.10.1/msvc2022_64",
         "VCPKG_TARGET_TRIPLET": "x86-windows"
       }
     }
   ],
   "buildPresets": [
     {
-      "name": "x64-release",
-      "configurePreset": "x64-release",
-      "configuration": "Release"
+      "name": "x64-debug",
+      "configurePreset": "x64-debug"
     },
     {
-      "name": "x64-debug",
-      "configurePreset": "x64-debug",
-      "configuration": "Debug"
+      "name": "x64-release",
+      "configurePreset": "x64-release"
+    },
+    {
+      "name": "x86-debug",
+      "configurePreset": "x86-debug"
     },
     {
       "name": "x86-release",
-      "configurePreset": "x86-release",
-      "configuration": "Release"
+      "configurePreset": "x86-release"
     }
   ]
 }
