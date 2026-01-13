@@ -41,6 +41,50 @@ static void WriteDebugLog(const char* format, ...) {
 namespace MiniProxifier {
 
 bool HookManager::s_initialized = false;
+ProxyConfig HookManager::s_cachedConfig;
+
+const ProxyConfig& HookManager::GetCachedConfig() {
+    return s_cachedConfig;
+}
+
+bool HookManager::CreateSharedMemoryForProcess(DWORD processId) {
+    // Format shared memory name for the child process
+    wchar_t sharedMemName[256];
+    swprintf_s(sharedMemName, SHARED_MEM_NAME_FORMAT, processId);
+
+    DEBUG_LOG("CreateSharedMemoryForProcess: Creating shared memory for PID %d: %ls", processId, sharedMemName);
+
+    // Create file mapping
+    HANDLE hMapFile = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        NULL,
+        PAGE_READWRITE,
+        0,
+        static_cast<DWORD>(SHARED_MEM_SIZE),
+        sharedMemName);
+
+    if (!hMapFile) {
+        DEBUG_LOG("CreateSharedMemoryForProcess: CreateFileMappingW failed: %d", GetLastError());
+        return false;
+    }
+
+    // Map view and write config
+    LPVOID pBuf = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE);
+    if (!pBuf) {
+        DEBUG_LOG("CreateSharedMemoryForProcess: MapViewOfFile failed: %d", GetLastError());
+        CloseHandle(hMapFile);
+        return false;
+    }
+
+    // Copy cached config to shared memory
+    memcpy(pBuf, &s_cachedConfig, sizeof(ProxyConfig));
+    UnmapViewOfFile(pBuf);
+
+    // Don't close hMapFile - keep it open so the shared memory persists
+    // It will be closed when this process exits
+    DEBUG_LOG("CreateSharedMemoryForProcess: Shared memory created successfully for PID %d", processId);
+    return true;
+}
 
 bool HookManager::Initialize() {
     if (s_initialized) {
@@ -155,6 +199,10 @@ bool HookManager::LoadProxyConfig() {
         CloseHandle(hMapFile);
         return false;
     }
+
+    // Cache the config for child process injection
+    memcpy(&s_cachedConfig, pConfig, sizeof(ProxyConfig));
+    DEBUG_LOG("LoadProxyConfig: Config cached for child process injection");
 
     // Set proxy in Socks5Client
     Socks5Client::ProxyInfo proxy;

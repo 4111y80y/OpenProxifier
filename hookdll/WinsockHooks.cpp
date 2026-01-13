@@ -1,4 +1,5 @@
 #include "WinsockHooks.h"
+#include "HookManager.h"
 #include "Socks5Client.h"
 #include "SocketState.h"
 #include "Logger.h"
@@ -258,6 +259,10 @@ BOOL WINAPI WinsockHooks::Hooked_CreateProcessW(
     if (result && lpProcessInformation) {
         DebugLog("Child process created: PID=%d", lpProcessInformation->dwProcessId);
 
+        // Create shared memory for the child process BEFORE injecting
+        // This way the child's DLL can find its proxy config
+        HookManager::CreateSharedMemoryForProcess(lpProcessInformation->dwProcessId);
+
         // Inject our DLL into the child process
         InjectIntoProcess(lpProcessInformation->hProcess, lpProcessInformation->hThread, dwCreationFlags);
 
@@ -293,6 +298,10 @@ BOOL WINAPI WinsockHooks::Hooked_CreateProcessA(
 
     if (result && lpProcessInformation) {
         DebugLog("Child process created: PID=%d", lpProcessInformation->dwProcessId);
+
+        // Create shared memory for the child process BEFORE injecting
+        // This way the child's DLL can find its proxy config
+        HookManager::CreateSharedMemoryForProcess(lpProcessInformation->dwProcessId);
 
         // Inject our DLL into the child process
         InjectIntoProcess(lpProcessInformation->hProcess, lpProcessInformation->hThread, dwCreationFlags);

@@ -67,6 +67,7 @@ private:
     bool resumeProcess(DWORD processId);
     bool initWMI();
     void cleanupWMI();
+    void injectIntoExistingProcesses();  // Scan and inject into already-running target processes
 
     QThread* m_thread;
     volatile bool m_running;

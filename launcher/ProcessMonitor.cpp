@@ -261,6 +261,9 @@ void ProcessMonitor::startMonitoring()
         return;
     }
 
+    // First, inject into any already-running target processes
+    injectIntoExistingProcesses();
+
     // Try WMI first
     if (initWMI()) {
         MonitorLog("Using WMI event-based monitoring");
@@ -619,4 +622,52 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
 
     MonitorLog("Successfully injected into PID %d", processId);
     return true;
+}
+
+void ProcessMonitor::injectIntoExistingProcesses()
+{
+    MonitorLog("Scanning for existing target processes...");
+
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        MonitorLog("Failed to create process snapshot");
+        return;
+    }
+
+    PROCESSENTRY32W pe32;
+    pe32.dwSize = sizeof(pe32);
+
+    int injectedCount = 0;
+
+    if (Process32FirstW(hSnapshot, &pe32)) {
+        do {
+            QString exeName = QString::fromWCharArray(pe32.szExeFile).toLower();
+            DWORD pid = pe32.th32ProcessID;
+
+            // Skip if not a target or already injected
+            if (!m_targetProcesses.contains(exeName) ||
+                m_injectedProcesses.contains(pid)) {
+                continue;
+            }
+
+            // Skip system processes (PID 0 and 4)
+            if (pid == 0 || pid == 4) {
+                continue;
+            }
+
+            MonitorLog("Found existing target process: %s (PID %d)", exeName.toStdString().c_str(), pid);
+            emit processDetected(exeName, pid);
+
+            if (injectIntoProcess(pid)) {
+                m_injectedProcesses.insert(pid);
+                emit injectionResult(exeName, pid, true, "Injected into existing process");
+                injectedCount++;
+            } else {
+                emit injectionResult(exeName, pid, false, "Failed to inject into existing process");
+            }
+        } while (Process32NextW(hSnapshot, &pe32));
+    }
+
+    CloseHandle(hSnapshot);
+    MonitorLog("Finished scanning. Injected into %d existing processes.", injectedCount);
 }
