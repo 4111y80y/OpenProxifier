@@ -1,0 +1,8 @@
+{
+  "name": "miniproxifier",
+  "version": "1.0.0",
+  "description": "Windows per-process transparent SOCKS5 proxy injector",
+  "dependencies": [
+    "detours"
+  ]
+}
