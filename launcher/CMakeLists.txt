@@ -6,6 +6,8 @@ qt_add_executable(MiniProxifier
     MainWindow.ui
     Injector.cpp
     Injector.h
+    ProcessMonitor.cpp
+    ProcessMonitor.h
 )
 
 # Link dependencies
@@ -24,12 +26,35 @@ set_target_properties(MiniProxifier PROPERTIES
     OUTPUT_NAME "MiniProxifier_${ARCH_SUFFIX}"
 )
 
+# ProxifierInjector - Command line injector for IFEO
+add_executable(ProxifierInjector
+    ProxifierInjector.cpp
+)
+
+target_link_libraries(ProxifierInjector PRIVATE
+    MiniProxifierCommon
+    ws2_32
+    kernel32
+)
+
+set_target_properties(ProxifierInjector PROPERTIES
+    OUTPUT_NAME "ProxifierInjector_${ARCH_SUFFIX}"
+)
+
 # Copy Hook DLL to output directory after build
 add_custom_command(TARGET MiniProxifier POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:MiniProxifierHook>
         $<TARGET_FILE_DIR:MiniProxifier>
     COMMENT "Copying MiniProxifierHook DLL..."
+)
+
+# Copy Hook DLL for ProxifierInjector too
+add_custom_command(TARGET ProxifierInjector POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:MiniProxifierHook>
+        $<TARGET_FILE_DIR:ProxifierInjector>
+    COMMENT "Copying MiniProxifierHook DLL for Injector..."
 )
 
 # Qt deployment (windeployqt)

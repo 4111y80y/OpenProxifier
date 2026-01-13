@@ -5,6 +5,38 @@
 #include "Logger.h"
 #include <windows.h>
 #include <detours/detours.h>
+#include <cstdio>
+
+// External debug log function (defined in dllmain.cpp)
+extern void DebugLogExternal(const char* format, ...);
+
+// Helper function to write to temp debug log
+static void WriteDebugLog(const char* format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    OutputDebugStringA(buffer);
+    OutputDebugStringA("\n");
+
+    // Also write to temp log file
+    char tempPath[MAX_PATH];
+    if (GetTempPathA(MAX_PATH, tempPath) > 0) {
+        char logPath[MAX_PATH];
+        snprintf(logPath, MAX_PATH, "%shookdll_debug.log", tempPath);
+        FILE* f = nullptr;
+        fopen_s(&f, logPath, "a");
+        if (f) {
+            fprintf(f, "%s\n", buffer);
+            fclose(f);
+        }
+    }
+}
+
+// Helper macro for debug logging
+#define DEBUG_LOG(...) WriteDebugLog(__VA_ARGS__)
 
 namespace MiniProxifier {
 
@@ -87,25 +119,36 @@ bool HookManager::LoadProxyConfig() {
     wchar_t sharedMemName[256];
     swprintf_s(sharedMemName, SHARED_MEM_NAME_FORMAT, pid);
 
+    DEBUG_LOG("LoadProxyConfig: Looking for shared memory: %ls", sharedMemName);
+    LOG("LoadProxyConfig: Looking for shared memory with PID %d", pid);
+
     // Open shared memory
     HANDLE hMapFile = OpenFileMappingW(FILE_MAP_READ, FALSE, sharedMemName);
     if (!hMapFile) {
+        DWORD err = GetLastError();
+        DEBUG_LOG("LoadProxyConfig: OpenFileMappingW failed, error=%d", err);
         LOG("Failed to open shared memory: %s (error: %d)",
-            "shared memory not found", GetLastError());
+            "shared memory not found", err);
         return false;
     }
+
+    DEBUG_LOG("LoadProxyConfig: Shared memory opened successfully");
 
     // Map view
     ProxyConfig* pConfig = static_cast<ProxyConfig*>(
         MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, SHARED_MEM_SIZE));
     if (!pConfig) {
+        DEBUG_LOG("LoadProxyConfig: MapViewOfFile failed");
         LOG("Failed to map view of shared memory");
         CloseHandle(hMapFile);
         return false;
     }
 
+    DEBUG_LOG("LoadProxyConfig: Config magic=0x%08X, version=%d", pConfig->magic, pConfig->version);
+
     // Validate and copy config
     if (!pConfig->isValid()) {
+        DEBUG_LOG("LoadProxyConfig: Invalid config!");
         LOG("Invalid proxy config (magic: 0x%08X, version: %d)",
             pConfig->magic, pConfig->version);
         UnmapViewOfFile(pConfig);
@@ -123,6 +166,13 @@ bool HookManager::LoadProxyConfig() {
         proxy.password = pConfig->password;
     }
     Socks5Client::SetProxy(proxy);
+
+    DEBUG_LOG("LoadProxyConfig: Proxy set to %d.%d.%d.%d:%d",
+        (pConfig->proxyIp >> 0) & 0xFF,
+        (pConfig->proxyIp >> 8) & 0xFF,
+        (pConfig->proxyIp >> 16) & 0xFF,
+        (pConfig->proxyIp >> 24) & 0xFF,
+        ntohs(pConfig->proxyPort));
 
     LOG("Proxy config loaded: %d.%d.%d.%d:%d",
         (pConfig->proxyIp >> 0) & 0xFF,

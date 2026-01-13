@@ -1,112 +1,138 @@
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
-#include "Injector.h"
+#include "ProcessMonitor.h"
 #include "ProxyConfig.h"
-#include <QFileDialog>
 #include <QMessageBox>
 #include <QDir>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QTimer>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , m_monitor(new ProcessMonitor(this))
 {
     ui->setupUi(this);
 
-    // Connect signals
-    connect(ui->browseButton, &QPushButton::clicked, this, &MainWindow::onBrowseClicked);
-    connect(ui->launchButton, &QPushButton::clicked, this, &MainWindow::onLaunchClicked);
+    // Connect UI signals
+    connect(ui->addExeButton, &QPushButton::clicked, this, &MainWindow::onAddExeClicked);
+    connect(ui->removeExeButton, &QPushButton::clicked, this, &MainWindow::onRemoveExeClicked);
+    connect(ui->startMonitorButton, &QPushButton::clicked, this, &MainWindow::onStartMonitorClicked);
+    connect(ui->stopMonitorButton, &QPushButton::clicked, this, &MainWindow::onStopMonitorClicked);
     connect(ui->authCheckBox, &QCheckBox::stateChanged, this, &MainWindow::onAuthCheckChanged);
+
+    // Connect ProcessMonitor signals
+    connect(m_monitor, &ProcessMonitor::processDetected, this, &MainWindow::onProcessDetected);
+    connect(m_monitor, &ProcessMonitor::injectionResult, this, &MainWindow::onInjectionResult);
+    connect(m_monitor, &ProcessMonitor::monitoringStarted, this, &MainWindow::onMonitoringStarted);
+    connect(m_monitor, &ProcessMonitor::monitoringStopped, this, &MainWindow::onMonitoringStopped);
+    connect(m_monitor, &ProcessMonitor::error, this, &MainWindow::onMonitorError);
 
     // Initial state
     ui->usernameEdit->setEnabled(false);
     ui->passwordEdit->setEnabled(false);
 
     // Set default values
-    ui->exePathEdit->setText("C:\\Windows\\System32\\cmd.exe");
-    ui->proxyHostEdit->setText("127.0.0.1");
+    ui->proxyHostEdit->setText("172.30.156.245");
     ui->proxyPortSpin->setValue(1081);
-    ui->cmdLineEdit->setText("/k curl https://only-111033-113-74-8-82.nstool.321fenx.com/info.js?referer=https://nstool.netease.com/info.js");
+
+    // Add default target process
+    ui->exeListWidget->addItem("curl.exe");
+
+    // Set DLL path
+    QString dllPath = getHookDllPath();
+    if (!dllPath.isEmpty()) {
+        m_monitor->setDllPath(dllPath);
+        appendLog(QString("DLL: %1").arg(dllPath));
+    } else {
+        appendLog("[ERROR] Hook DLL not found!");
+    }
 
     updateStatus("Ready");
+
+    // Auto-start monitoring after a short delay
+    QTimer::singleShot(1000, this, &MainWindow::onStartMonitorClicked);
 }
 
 MainWindow::~MainWindow()
 {
+    m_monitor->stopMonitoring();
     delete ui;
 }
 
-void MainWindow::onBrowseClicked()
+void MainWindow::onAddExeClicked()
 {
-    QString fileName = QFileDialog::getOpenFileName(this,
-        "Select Executable", "", "Executable Files (*.exe);;All Files (*)");
-
-    if (!fileName.isEmpty()) {
-        ui->exePathEdit->setText(fileName);
-    }
-}
-
-void MainWindow::onLaunchClicked()
-{
-    if (!validateInput()) {
+    QString exeName = ui->exeNameEdit->text().trimmed();
+    if (exeName.isEmpty()) {
         return;
     }
 
-    QString exePath = ui->exePathEdit->text();
-    QString cmdLine = ui->cmdLineEdit->text();
-    QString proxyHost = ui->proxyHostEdit->text();
-    int proxyPort = ui->proxyPortSpin->value();
+    // Ensure it ends with .exe
+    if (!exeName.toLower().endsWith(".exe")) {
+        exeName += ".exe";
+    }
 
-    // Get hook DLL path
+    // Check for duplicates
+    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+        if (ui->exeListWidget->item(i)->text().toLower() == exeName.toLower()) {
+            QMessageBox::warning(this, "Duplicate", "This executable is already in the list.");
+            return;
+        }
+    }
+
+    ui->exeListWidget->addItem(exeName);
+    ui->exeNameEdit->clear();
+    appendLog(QString("Added target: %1").arg(exeName));
+}
+
+void MainWindow::onRemoveExeClicked()
+{
+    QListWidgetItem* item = ui->exeListWidget->currentItem();
+    if (item) {
+        QString exeName = item->text();
+        delete ui->exeListWidget->takeItem(ui->exeListWidget->row(item));
+        appendLog(QString("Removed target: %1").arg(exeName));
+    }
+}
+
+void MainWindow::onStartMonitorClicked()
+{
+    if (!validateProxySettings()) {
+        return;
+    }
+
+    if (ui->exeListWidget->count() == 0) {
+        QMessageBox::warning(this, "No Targets", "Please add at least one target executable.");
+        return;
+    }
+
     QString dllPath = getHookDllPath();
     if (dllPath.isEmpty()) {
         QMessageBox::critical(this, "Error", "Hook DLL not found!");
         return;
     }
 
-    // Debug: Show DLL path
-    updateStatus(QString("DLL: %1").arg(dllPath));
+    // Configure monitor
+    m_monitor->setDllPath(dllPath);
+    m_monitor->clearTargetProcesses();
 
-    updateStatus("Launching process...");
-
-    // Prepare proxy config
-    ProxyConfig config;
-
-    // Convert proxy host to IP
-    struct in_addr addr;
-    if (inet_pton(AF_INET, proxyHost.toStdString().c_str(), &addr) != 1) {
-        QMessageBox::critical(this, "Error", "Invalid proxy IP address");
-        return;
-    }
-    config.proxyIp = addr.s_addr;
-    config.proxyPort = htons(static_cast<uint16_t>(proxyPort));
-
-    // Authentication (if enabled)
-    if (ui->authCheckBox->isChecked()) {
-        config.authRequired = 1;
-        strncpy_s(config.username, ui->usernameEdit->text().toStdString().c_str(), sizeof(config.username) - 1);
-        strncpy_s(config.password, ui->passwordEdit->text().toStdString().c_str(), sizeof(config.password) - 1);
+    for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+        m_monitor->addTargetProcess(ui->exeListWidget->item(i)->text());
     }
 
-    // Launch and inject
-    Injector::InjectResult result = Injector::LaunchAndInject(
-        exePath.toStdWString(),
-        dllPath.toStdWString(),
-        cmdLine.toStdWString(),
-        config
-    );
+    // Set proxy config
+    updateProxyConfig();
 
-    if (result.success) {
-        updateStatus(QString("Process launched successfully (PID: %1)").arg(result.processId));
-        QMessageBox::information(this, "Success",
-            QString("Process launched with proxy.\nPID: %1").arg(result.processId));
-    } else {
-        updateStatus("Launch failed");
-        QMessageBox::critical(this, "Error",
-            QString("Failed to launch process:\n%1").arg(QString::fromStdWString(result.errorMessage)));
-    }
+    // Start monitoring
+    m_monitor->startMonitoring();
+}
+
+void MainWindow::onStopMonitorClicked()
+{
+    m_monitor->stopMonitoring();
 }
 
 void MainWindow::onAuthCheckChanged(int state)
@@ -116,25 +142,68 @@ void MainWindow::onAuthCheckChanged(int state)
     ui->passwordEdit->setEnabled(enabled);
 }
 
+void MainWindow::onProcessDetected(const QString& exeName, unsigned long processId)
+{
+    appendLog(QString("[DETECTED] %1 (PID: %2)").arg(exeName).arg(processId));
+}
+
+void MainWindow::onInjectionResult(const QString& exeName, unsigned long processId, bool success, const QString& message)
+{
+    if (success) {
+        appendLog(QString("[SUCCESS] Injected into %1 (PID: %2)").arg(exeName).arg(processId));
+    } else {
+        appendLog(QString("[FAILED] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message));
+    }
+}
+
+void MainWindow::onMonitoringStarted()
+{
+    ui->startMonitorButton->setEnabled(false);
+    ui->stopMonitorButton->setEnabled(true);
+    ui->proxyGroup->setEnabled(false);
+    ui->targetGroup->setEnabled(false);
+    updateStatus("Monitoring...");
+    appendLog("[INFO] Monitoring started - waiting for target processes...");
+}
+
+void MainWindow::onMonitoringStopped()
+{
+    ui->startMonitorButton->setEnabled(true);
+    ui->stopMonitorButton->setEnabled(false);
+    ui->proxyGroup->setEnabled(true);
+    ui->targetGroup->setEnabled(true);
+    updateStatus("Stopped");
+    appendLog("[INFO] Monitoring stopped");
+}
+
+void MainWindow::onMonitorError(const QString& message)
+{
+    appendLog(QString("[ERROR] %1").arg(message));
+    QMessageBox::critical(this, "Error", message);
+}
+
 void MainWindow::updateStatus(const QString& message)
 {
     ui->statusLabel->setText("Status: " + message);
 }
 
-bool MainWindow::validateInput()
+void MainWindow::appendLog(const QString& message)
 {
-    if (ui->exePathEdit->text().isEmpty()) {
-        QMessageBox::warning(this, "Validation Error", "Please select an executable file.");
-        return false;
-    }
+    QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+    ui->logTextEdit->append(QString("[%1] %2").arg(timestamp).arg(message));
+}
 
-    if (!QFile::exists(ui->exePathEdit->text())) {
-        QMessageBox::warning(this, "Validation Error", "Selected executable file does not exist.");
-        return false;
-    }
-
+bool MainWindow::validateProxySettings()
+{
     if (ui->proxyHostEdit->text().isEmpty()) {
         QMessageBox::warning(this, "Validation Error", "Please enter proxy server address.");
+        return false;
+    }
+
+    // Validate IP address
+    struct in_addr addr;
+    if (inet_pton(AF_INET, ui->proxyHostEdit->text().toStdString().c_str(), &addr) != 1) {
+        QMessageBox::warning(this, "Validation Error", "Invalid proxy IP address.");
         return false;
     }
 
@@ -166,4 +235,21 @@ QString MainWindow::getHookDllPath()
     }
 
     return QString();
+}
+
+void MainWindow::updateProxyConfig()
+{
+    QString proxyHost = ui->proxyHostEdit->text();
+    int proxyPort = ui->proxyPortSpin->value();
+
+    struct in_addr addr;
+    inet_pton(AF_INET, proxyHost.toStdString().c_str(), &addr);
+
+    m_monitor->setProxyConfig(
+        addr.s_addr,
+        htons(static_cast<uint16_t>(proxyPort)),
+        ui->authCheckBox->isChecked(),
+        ui->usernameEdit->text(),
+        ui->passwordEdit->text()
+    );
 }
