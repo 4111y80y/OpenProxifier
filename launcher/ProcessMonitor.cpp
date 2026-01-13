@@ -212,32 +212,41 @@ bool ProcessMonitor::initWMI()
 
 void ProcessMonitor::cleanupWMI()
 {
+    MonitorLog("cleanupWMI: starting");
     if (m_pStubSink) {
+        MonitorLog("cleanupWMI: canceling async call");
         m_pServices->CancelAsyncCall(m_pStubSink);
+        MonitorLog("cleanupWMI: releasing m_pStubSink");
         m_pStubSink->Release();
         m_pStubSink = nullptr;
     }
     if (m_pStubUnk) {
+        MonitorLog("cleanupWMI: releasing m_pStubUnk");
         m_pStubUnk->Release();
         m_pStubUnk = nullptr;
     }
     if (m_pSink) {
+        MonitorLog("cleanupWMI: releasing m_pSink");
         m_pSink->Release();
         m_pSink = nullptr;
     }
     if (m_pUnsecApp) {
+        MonitorLog("cleanupWMI: releasing m_pUnsecApp");
         m_pUnsecApp->Release();
         m_pUnsecApp = nullptr;
     }
     if (m_pServices) {
+        MonitorLog("cleanupWMI: releasing m_pServices");
         m_pServices->Release();
         m_pServices = nullptr;
     }
     if (m_pLocator) {
+        MonitorLog("cleanupWMI: releasing m_pLocator");
         m_pLocator->Release();
         m_pLocator = nullptr;
     }
     m_wmiInitialized = false;
+    MonitorLog("cleanupWMI: done");
 }
 
 void ProcessMonitor::startMonitoring()
@@ -315,24 +324,33 @@ void ProcessMonitor::startMonitoring()
 
 void ProcessMonitor::stopMonitoring()
 {
+    MonitorLog("stopMonitoring called");
+
     if (!m_running) {
+        MonitorLog("stopMonitoring: not running, returning");
         return;
     }
 
     m_running = false;
+    MonitorLog("stopMonitoring: set m_running = false");
 
     // Cleanup WMI
+    MonitorLog("stopMonitoring: calling cleanupWMI");
     cleanupWMI();
+    MonitorLog("stopMonitoring: cleanupWMI done");
 
     // Stop polling thread if running
     if (m_thread) {
+        MonitorLog("stopMonitoring: stopping polling thread");
         m_thread->quit();
         m_thread->wait(3000);
         delete m_thread;
         m_thread = nullptr;
+        MonitorLog("stopMonitoring: polling thread stopped");
     }
 
     m_injectedProcesses.clear();
+    MonitorLog("stopMonitoring: emitting monitoringStopped");
     emit monitoringStopped();
 }
 
@@ -566,10 +584,6 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
 {
     MonitorLog("injectIntoProcess called for PID %d", processId);
 
-    if (!createProxySharedMemory(processId)) {
-        return false;
-    }
-
     HANDLE hProcess = OpenProcess(
         PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
         PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
@@ -577,6 +591,33 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
 
     if (!hProcess) {
         MonitorLog("Failed to open process %d, error: %d", processId, GetLastError());
+        return false;
+    }
+
+    // Check if target process architecture matches our DLL
+    BOOL isWow64 = FALSE;
+    if (IsWow64Process(hProcess, &isWow64)) {
+#ifdef _WIN64
+        // We are 64-bit, target must also be 64-bit (not WOW64)
+        if (isWow64) {
+            MonitorLog("Skipping 32-bit process %d (we have 64-bit DLL)", processId);
+            CloseHandle(hProcess);
+            return false;
+        }
+#else
+        // We are 32-bit, target must also be 32-bit (WOW64 on 64-bit Windows, or native 32-bit)
+        SYSTEM_INFO si;
+        GetNativeSystemInfo(&si);
+        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 && !isWow64) {
+            MonitorLog("Skipping 64-bit process %d (we have 32-bit DLL)", processId);
+            CloseHandle(hProcess);
+            return false;
+        }
+#endif
+    }
+
+    if (!createProxySharedMemory(processId)) {
+        CloseHandle(hProcess);
         return false;
     }
 
