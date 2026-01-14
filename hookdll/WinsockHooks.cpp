@@ -116,44 +116,11 @@ bool WinsockHooks::AttachHooks() {
         return false;
     }
 
-    // Hook socket I/O functions for socket mapping (IPv6 -> IPv4 proxy)
-    error = DetourAttach(&(PVOID&)Real_send, Hooked_send);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach send hook: %ld", error);
-        return false;
-    }
+    // NOTE: Socket I/O hooks (send, recv, etc.) disabled due to Chromium network service compatibility issues
+    // For now, IPv6 connections that require socket mapping will fall back to direct connection
+    // TODO: Find a Chromium-compatible way to support IPv6 through IPv4-only proxies
 
-    error = DetourAttach(&(PVOID&)Real_recv, Hooked_recv);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach recv hook: %ld", error);
-        return false;
-    }
-
-    error = DetourAttach(&(PVOID&)Real_WSASend, Hooked_WSASend);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach WSASend hook: %ld", error);
-        return false;
-    }
-
-    error = DetourAttach(&(PVOID&)Real_WSARecv, Hooked_WSARecv);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach WSARecv hook: %ld", error);
-        return false;
-    }
-
-    error = DetourAttach(&(PVOID&)Real_closesocket, Hooked_closesocket);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach closesocket hook: %ld", error);
-        return false;
-    }
-
-    error = DetourAttach(&(PVOID&)Real_shutdown, Hooked_shutdown);
-    if (error != NO_ERROR) {
-        LOG("Failed to attach shutdown hook: %ld", error);
-        return false;
-    }
-
-    DebugLog("All hooks attached (connect, WSAConnect, CreateProcess, ShellExecuteEx, send, recv, closesocket)");
+    DebugLog("All hooks attached (connect, WSAConnect, CreateProcess, ShellExecuteEx)");
     LOG("Winsock hooks attached successfully");
     return true;
 }
@@ -165,13 +132,13 @@ bool WinsockHooks::DetachHooks() {
     DetourDetach(&(PVOID&)Real_CreateProcessA, Hooked_CreateProcessA);
     DetourDetach(&(PVOID&)Real_ShellExecuteExW, Hooked_ShellExecuteExW);
     DetourDetach(&(PVOID&)Real_ShellExecuteExA, Hooked_ShellExecuteExA);
-    // Socket I/O hooks
-    DetourDetach(&(PVOID&)Real_send, Hooked_send);
-    DetourDetach(&(PVOID&)Real_recv, Hooked_recv);
-    DetourDetach(&(PVOID&)Real_WSASend, Hooked_WSASend);
-    DetourDetach(&(PVOID&)Real_WSARecv, Hooked_WSARecv);
-    DetourDetach(&(PVOID&)Real_closesocket, Hooked_closesocket);
-    DetourDetach(&(PVOID&)Real_shutdown, Hooked_shutdown);
+    // Socket I/O hooks disabled (Chromium compatibility)
+    // DetourDetach(&(PVOID&)Real_send, Hooked_send);
+    // DetourDetach(&(PVOID&)Real_recv, Hooked_recv);
+    // DetourDetach(&(PVOID&)Real_WSASend, Hooked_WSASend);
+    // DetourDetach(&(PVOID&)Real_WSARecv, Hooked_WSARecv);
+    // DetourDetach(&(PVOID&)Real_closesocket, Hooked_closesocket);
+    // DetourDetach(&(PVOID&)Real_shutdown, Hooked_shutdown);
     LOG("Winsock hooks detached");
     return true;
 }
@@ -307,34 +274,11 @@ int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen)
             return Real_connect(s, name, namelen);
         }
 
-        DebugLog("Creating IPv4 socket for IPv6 target proxy connection...");
-
-        // Create a new IPv4 socket to connect to the proxy
-        SOCKET ipv4Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (ipv4Socket == INVALID_SOCKET) {
-            DebugLog("Failed to create IPv4 socket: %d", WSAGetLastError());
-            return Real_connect(s, name, namelen);  // Fallback to direct
-        }
-
-        // Set IPv4 socket to blocking mode
-        u_long blocking = 0;
-        ioctlsocket(ipv4Socket, FIONBIO, &blocking);
-
-        // Connect to proxy and complete SOCKS5 handshake with IPv6 target
-        bool success = Socks5Client::ConnectThroughProxyV6(ipv4Socket, addr6->sin6_addr, targetPort);
-
-        if (success) {
-            // Add socket mapping: original IPv6 socket -> IPv4 proxy socket
-            SocketMapper::getInstance().addMapping(s, ipv4Socket);
-            DebugLog("SOCKS5 IPv6 connection established, socket mapped: %llu -> %llu",
-                (unsigned long long)s, (unsigned long long)ipv4Socket);
-            return 0;  // Success
-        } else {
-            // Proxy connection failed, close IPv4 socket and fallback to direct
-            Real_closesocket(ipv4Socket);
-            DebugLog("SOCKS5 IPv6 connection failed, falling back to direct");
-            return Real_connect(s, name, namelen);
-        }
+        // NOTE: Socket mapping disabled due to Chromium network service compatibility issues
+        // IPv6 connections are passed through directly
+        // TODO: Find a Chromium-compatible way to support IPv6 through IPv4-only proxies
+        DebugLog("Pure IPv6 address, passing through (socket I/O hooks disabled for Chromium compatibility)");
+        return Real_connect(s, name, namelen);
     }
     else {
         // Other address families, pass through
