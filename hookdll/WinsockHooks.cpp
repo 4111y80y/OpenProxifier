@@ -641,28 +641,46 @@ BOOL WINAPI WinsockHooks::Hooked_ShellExecuteExA(SHELLEXECUTEINFOA* pExecInfo) {
 
 // Socket I/O hooks for socket mapping
 int WINAPI WinsockHooks::Hooked_send(SOCKET s, const char* buf, int len, int flags) {
-    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
-    return Real_send(actualSocket, buf, len, flags);
+    // Only redirect if this socket has a mapping
+    if (SocketMapper::getInstance().hasMapping(s)) {
+        SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+        return Real_send(actualSocket, buf, len, flags);
+    }
+    return Real_send(s, buf, len, flags);
 }
 
 int WINAPI WinsockHooks::Hooked_recv(SOCKET s, char* buf, int len, int flags) {
-    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
-    return Real_recv(actualSocket, buf, len, flags);
+    // Only redirect if this socket has a mapping
+    if (SocketMapper::getInstance().hasMapping(s)) {
+        SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+        return Real_recv(actualSocket, buf, len, flags);
+    }
+    return Real_recv(s, buf, len, flags);
 }
 
 int WINAPI WinsockHooks::Hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
     LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
     LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
-    return Real_WSASend(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
+    // Only redirect if this socket has a mapping
+    if (SocketMapper::getInstance().hasMapping(s)) {
+        SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+        return Real_WSASend(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
+            dwFlags, lpOverlapped, lpCompletionRoutine);
+    }
+    return Real_WSASend(s, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
         dwFlags, lpOverlapped, lpCompletionRoutine);
 }
 
 int WINAPI WinsockHooks::Hooked_WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
     LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
     LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
-    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
-    return Real_WSARecv(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd,
+    // Only redirect if this socket has a mapping
+    if (SocketMapper::getInstance().hasMapping(s)) {
+        SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+        return Real_WSARecv(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd,
+            lpFlags, lpOverlapped, lpCompletionRoutine);
+    }
+    return Real_WSARecv(s, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd,
         lpFlags, lpOverlapped, lpCompletionRoutine);
 }
 
@@ -674,8 +692,12 @@ int WINAPI WinsockHooks::Hooked_closesocket(SOCKET s) {
 }
 
 int WINAPI WinsockHooks::Hooked_shutdown(SOCKET s, int how) {
-    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
-    return Real_shutdown(actualSocket, how);
+    // Only redirect if this socket has a mapping
+    if (SocketMapper::getInstance().hasMapping(s)) {
+        SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+        return Real_shutdown(actualSocket, how);
+    }
+    return Real_shutdown(s, how);
 }
 
 } // namespace MiniProxifier
