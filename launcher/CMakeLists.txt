@@ -18,13 +18,19 @@ target_link_libraries(MiniProxifier PRIVATE
     ws2_32
     kernel32
     psapi
+    wbemuuid
 )
 
-# Set Windows GUI application
+# Set Windows GUI application with admin privileges
 set_target_properties(MiniProxifier PROPERTIES
     WIN32_EXECUTABLE TRUE
     OUTPUT_NAME "MiniProxifier_${ARCH_SUFFIX}"
 )
+
+# Request admin privileges via linker
+if(MSVC)
+    target_link_options(MiniProxifier PRIVATE "/MANIFESTUAC:level='requireAdministrator'")
+endif()
 
 # ProxifierInjector - Command line injector for IFEO
 add_executable(ProxifierInjector
