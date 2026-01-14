@@ -555,6 +555,24 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     // Wait a bit for the DLL to finish loading if parent process is injecting
     Sleep(200);
 
+    // Check if process still exists
+    HANDLE hCheckProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (!hCheckProcess) {
+        MonitorLog("Process %d no longer exists after retries", processId);
+        emit injectionResult(exeName, processId, false, "Process exited before injection");
+        return;
+    }
+
+    // Check if process has exited
+    DWORD exitCode = 0;
+    if (GetExitCodeProcess(hCheckProcess, &exitCode) && exitCode != STILL_ACTIVE) {
+        MonitorLog("Process %d has exited (exit code %d)", processId, exitCode);
+        CloseHandle(hCheckProcess);
+        emit injectionResult(exeName, processId, false, "Process exited before injection");
+        return;
+    }
+    CloseHandle(hCheckProcess);
+
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
     if (hProcess) {
         // Check if our DLL is already loaded
