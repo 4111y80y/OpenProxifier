@@ -122,38 +122,41 @@ bool Socks5Client::DoHandshake(SOCKET sock) {
         greeting[2] = 0x00;  // METHOD: no auth
         greeting[3] = 0x02;  // METHOD: username/password
         greetingLen = 4;
-        LOG("SOCKS5: Offering auth methods: no-auth, username/password");
+        SocksDebugLog("DoHandshake: Offering auth methods: no-auth, username/password");
     } else {
         // Only offer no-auth
         greeting[0] = 0x05;  // VER
         greeting[1] = 0x01;  // NMETHODS
         greeting[2] = 0x00;  // METHOD: no auth
         greetingLen = 3;
-        LOG("SOCKS5: Offering auth method: no-auth only");
+        SocksDebugLog("DoHandshake: Offering auth method: no-auth only");
     }
 
     int sent = send(sock, reinterpret_cast<char*>(greeting), greetingLen, 0);
     if (sent != greetingLen) {
-        LOG("Failed to send SOCKS5 greeting: %d", WSAGetLastError());
+        SocksDebugLog("DoHandshake: Failed to send greeting: %d", WSAGetLastError());
         return false;
     }
+    SocksDebugLog("DoHandshake: Greeting sent, waiting for response...");
 
     // Receive server choice: VER(0x05) METHOD
     uint8_t response[2];
     int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
     if (received != 2) {
-        LOG("Failed to receive SOCKS5 greeting response: %d", WSAGetLastError());
+        SocksDebugLog("DoHandshake: Failed to receive response: %d (got %d bytes)", WSAGetLastError(), received);
         return false;
     }
 
+    SocksDebugLog("DoHandshake: Server response: VER=0x%02X METHOD=0x%02X", response[0], response[1]);
+
     if (response[0] != 0x05) {
-        LOG("Invalid SOCKS version: 0x%02X", response[0]);
+        SocksDebugLog("DoHandshake: Invalid SOCKS version: 0x%02X", response[0]);
         return false;
     }
 
     if (response[1] == 0x00) {
         // No authentication required
-        LOG("SOCKS5 handshake successful (no auth)");
+        SocksDebugLog("DoHandshake: Handshake successful (no auth)");
         return true;
     } else if (response[1] == 0x02) {
         // Username/password authentication required (RFC 1929)

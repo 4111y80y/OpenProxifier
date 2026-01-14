@@ -182,41 +182,58 @@ int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen)
 
         DebugLog("Intercepted IPv6 connect to [%s]:%d", ipStr, ntohs(targetPort));
 
-        // Check if proxy is enabled
-        if (!HookManager::IsProxyEnabled()) {
-            DebugLog("Proxy disabled, passing through");
-            return Real_connect(s, name, namelen);
+        // Check if this is an IPv4-mapped IPv6 address (::ffff:x.x.x.x)
+        // If so, we can proxy it as IPv4
+        if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
+            // Extract the IPv4 address from the last 4 bytes
+            uint32_t ipv4Addr;
+            memcpy(&ipv4Addr, &addr6->sin6_addr.s6_addr[12], 4);
+
+            DebugLog("IPv4-mapped address detected, treating as IPv4: %d.%d.%d.%d",
+                (ipv4Addr >> 0) & 0xFF, (ipv4Addr >> 8) & 0xFF,
+                (ipv4Addr >> 16) & 0xFF, (ipv4Addr >> 24) & 0xFF);
+
+            // Check if proxy is enabled
+            if (!HookManager::IsProxyEnabled()) {
+                DebugLog("Proxy disabled, passing through");
+                return Real_connect(s, name, namelen);
+            }
+
+            // Check if proxy is configured
+            if (!Socks5Client::IsProxyConfigured()) {
+                DebugLog("No proxy configured, passing through");
+                return Real_connect(s, name, namelen);
+            }
+
+            // Skip localhost
+            if ((ipv4Addr & 0xFF) == 127) {
+                DebugLog("Localhost connection, passing through");
+                return Real_connect(s, name, namelen);
+            }
+
+            DebugLog("Redirecting IPv4-mapped address through SOCKS5 proxy...");
+
+            // Set socket to blocking mode
+            u_long blocking = 0;
+            ioctlsocket(s, FIONBIO, &blocking);
+
+            // For IPv4-mapped addresses, use regular IPv4 proxy connection
+            bool success = Socks5Client::ConnectThroughProxy(s, ipv4Addr, targetPort);
+
+            if (success) {
+                LOG("SOCKS5 connection established successfully (IPv4-mapped)");
+                return 0;
+            } else {
+                LOG("SOCKS5 connection failed (IPv4-mapped)");
+                WSASetLastError(WSAECONNREFUSED);
+                return SOCKET_ERROR;
+            }
         }
 
-        // Check if proxy is configured
-        if (!Socks5Client::IsProxyConfigured()) {
-            DebugLog("No proxy configured, passing through");
-            return Real_connect(s, name, namelen);
-        }
-
-        // Skip connections to localhost (::1)
-        if (IN6_IS_ADDR_LOOPBACK(&addr6->sin6_addr)) {
-            DebugLog("IPv6 localhost connection, passing through");
-            return Real_connect(s, name, namelen);
-        }
-
-        DebugLog("Redirecting IPv6 through SOCKS5 proxy...");
-
-        // Set socket to blocking mode for SOCKS5 handshake
-        u_long blocking = 0;
-        ioctlsocket(s, FIONBIO, &blocking);
-
-        // Connect through SOCKS5 proxy (IPv6)
-        bool success = Socks5Client::ConnectThroughProxyV6(s, addr6->sin6_addr, targetPort);
-
-        if (success) {
-            LOG("SOCKS5 connection established successfully (IPv6)");
-            return 0;
-        } else {
-            LOG("SOCKS5 connection failed (IPv6)");
-            WSASetLastError(WSAECONNREFUSED);
-            return SOCKET_ERROR;
-        }
+        // For pure IPv6 addresses, pass through directly
+        // (Most proxies don't support IPv6 targets well)
+        DebugLog("Pure IPv6 address, passing through (proxy doesn't support IPv6 targets)");
+        return Real_connect(s, name, namelen);
     }
     else {
         // Other address families, pass through
