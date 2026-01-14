@@ -299,6 +299,16 @@ QPushButton:disabled { background-color: #cccccc; }</string>
        </spacer>
       </item>
       <item>
+       <widget class="QLabel" name="githubLink">
+        <property name="text">
+         <string>&lt;a href="https://github.com/4111y80y/OpenProxifier"&gt;GitHub&lt;/a&gt;</string>
+        </property>
+        <property name="openExternalLinks">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QComboBox" name="languageCombo">
         <property name="minimumWidth">
          <number>80</number>
