@@ -552,6 +552,9 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     }
 
     // All retries failed - but check if DLL was already injected by parent process hook
+    // Wait a bit for the DLL to finish loading if parent process is injecting
+    Sleep(200);
+
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
     if (hProcess) {
         // Check if our DLL is already loaded
