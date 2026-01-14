@@ -980,10 +980,10 @@ void MainWindow::closeEvent(QCloseEvent *event)
         hide();
         m_trayIcon->showMessage(
             tr_log("OpenProxifier", QStringLiteral("OpenProxifier")),
-            tr_log("Application minimized to tray. Right-click to exit.",
-                   QStringLiteral("程序已最小化到托盘。右键可退出。")),
+            tr_log("Application minimized to system tray (bottom-right corner). Right-click tray icon to exit.",
+                   QStringLiteral("程序已最小化到系统托盘（右下角）。右键点击托盘图标可退出。")),
             QSystemTrayIcon::Information,
-            2000
+            3000
         );
         event->ignore();
     }
