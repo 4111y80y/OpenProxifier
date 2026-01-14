@@ -255,3 +255,4 @@ std::wstring Injector::GetLastErrorString()
 
     return message + L" (Error " + std::to_wstring(error) + L")";
 }
+

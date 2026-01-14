@@ -24,7 +24,7 @@ target_include_directories(MiniProxifierHook PRIVATE
 
 # Set DLL output name with architecture suffix
 set_target_properties(MiniProxifierHook PROPERTIES
-    OUTPUT_NAME "MiniProxifierHook_${ARCH_SUFFIX}"
+    OUTPUT_NAME "OpenProxifierHook_${ARCH_SUFFIX}"
     PREFIX ""
 )
 

@@ -60,3 +60,4 @@ int main(int argc, char *argv[])
     CloseHandle(hMutex);
     return result;
 }
+

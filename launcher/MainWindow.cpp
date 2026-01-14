@@ -546,9 +546,9 @@ QString MainWindow::getHookDllPath()
     QString appDir = QCoreApplication::applicationDirPath();
 
 #ifdef _WIN64
-    QString dllName = "MiniProxifierHook_x64.dll";
+    QString dllName = "OpenProxifierHook_x64.dll";
 #else
-    QString dllName = "MiniProxifierHook_x86.dll";
+    QString dllName = "OpenProxifierHook_x86.dll";
 #endif
 
     QString dllPath = QDir(appDir).filePath(dllName);
@@ -622,6 +622,14 @@ void MainWindow::retranslateUi()
         if (ui->serverHistoryCombo->count() > 0) {
             ui->serverHistoryCombo->setItemText(0, QStringLiteral("-- 选择已保存的服务器 --"));
         }
+
+        // Update tray menu
+        if (m_showAction) {
+            m_showAction->setText(QStringLiteral("显示"));
+        }
+        if (m_exitAction) {
+            m_exitAction->setText(QStringLiteral("退出"));
+        }
     } else {
         // English translations
         setWindowTitle("OpenProxifier");
@@ -656,6 +664,14 @@ void MainWindow::retranslateUi()
         // Update server history combo placeholder
         if (ui->serverHistoryCombo->count() > 0) {
             ui->serverHistoryCombo->setItemText(0, "-- Select saved server --");
+        }
+
+        // Update tray menu
+        if (m_showAction) {
+            m_showAction->setText("Show");
+        }
+        if (m_exitAction) {
+            m_exitAction->setText("Exit");
         }
     }
 }
@@ -993,7 +1009,12 @@ void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason)
 {
     if (reason == QSystemTrayIcon::DoubleClick ||
         reason == QSystemTrayIcon::Trigger) {
-        bringToFront();
+        // Toggle show/hide
+        if (isVisible() && !isMinimized()) {
+            hide();
+        } else {
+            bringToFront();
+        }
     }
 }
 
@@ -1010,4 +1031,5 @@ void MainWindow::bringToFront()
     activateWindow();
     raise();
 }
+
 

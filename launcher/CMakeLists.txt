@@ -27,7 +27,7 @@ target_link_libraries(MiniProxifier PRIVATE
 # Set Windows GUI application with admin privileges
 set_target_properties(MiniProxifier PROPERTIES
     WIN32_EXECUTABLE TRUE
-    OUTPUT_NAME "MiniProxifier_${ARCH_SUFFIX}"
+    OUTPUT_NAME "OpenProxifier_${ARCH_SUFFIX}"
 )
 
 # Request admin privileges via linker
@@ -84,3 +84,4 @@ if(WIN32)
         )
     endif()
 endif()
+
