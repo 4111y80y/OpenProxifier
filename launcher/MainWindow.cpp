@@ -18,6 +18,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_monitor(new ProcessMonitor(this))
     , m_isChinese(false)
     , m_settings(new QSettings("OpenProxifier", "MiniProxifier", this))
+    , m_serverConnected(false)
 {
     ui->setupUi(this);
 
@@ -53,6 +54,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->serverHistoryCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onServerComboChanged);
 
+    // Connect test server button
+    connect(ui->testServerButton, &QPushButton::clicked, this, &MainWindow::onTestServerClicked);
+
+    // Connect proxy settings change signals for auto-test
+    connect(ui->proxyHostEdit, &QLineEdit::textChanged, this, &MainWindow::onProxySettingsChanged);
+    connect(ui->proxyPortSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onProxySettingsChanged);
+
     // Connect ProcessMonitor signals
     connect(m_monitor, &ProcessMonitor::processDetected, this, &MainWindow::onProcessDetected);
     connect(m_monitor, &ProcessMonitor::injectionResult, this, &MainWindow::onInjectionResult);
@@ -63,6 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Initial state
     ui->usernameEdit->setEnabled(false);
     ui->passwordEdit->setEnabled(false);
+    ui->startMonitorButton->setEnabled(false);  // Disabled until connection tested
 
     // Set default values
     ui->proxyHostEdit->setText("127.0.0.1");
@@ -90,12 +99,19 @@ MainWindow::MainWindow(QWidget *parent)
     // Apply initial language
     retranslateUi();
 
+    // Initial connection status
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QString::fromUtf8("\346\234\252\346\265\213\350\257\225")));
+    ui->connectionStatusLabel->setStyleSheet("color: gray;");
+
     updateStatus(tr_log("Ready", QString::fromUtf8("\345\260\261\347\273\252")));
 
-    // Auto-start monitoring if enabled
-    if (ui->autoStartCheckBox->isChecked()) {
-        QTimer::singleShot(500, this, &MainWindow::onStartMonitorClicked);
-    }
+    // Auto-test connection on startup, then auto-start if enabled
+    QTimer::singleShot(500, this, [this]() {
+        onTestServerClicked();
+        if (m_serverConnected && ui->autoStartCheckBox->isChecked()) {
+            onStartMonitorClicked();
+        }
+    });
 }
 
 MainWindow::~MainWindow()
@@ -560,6 +576,7 @@ void MainWindow::retranslateUi()
         ui->stopMonitorButton->setText(QString::fromUtf8("\345\201\234\346\255\242\347\233\221\346\216\247"));
         ui->startMonitorButton->setToolTip(QString::fromUtf8("\347\233\221\346\216\247\347\263\273\347\273\237\344\270\255\347\232\204\347\233\256\346\240\207\350\277\233\347\250\213\345\271\266\350\207\252\345\212\250\346\263\250\345\205\245"));
         ui->logGroup->setTitle(QString::fromUtf8("\346\264\273\345\212\250\346\227\245\345\277\227"));
+        ui->testServerButton->setText(QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245"));
 
         // Update status if not monitoring
         if (!m_monitor->isMonitoring()) {
@@ -593,6 +610,7 @@ void MainWindow::retranslateUi()
         ui->stopMonitorButton->setText("Stop Monitoring");
         ui->startMonitorButton->setToolTip("Monitor system for target processes and auto-inject");
         ui->logGroup->setTitle("Activity Log");
+        ui->testServerButton->setText("Test Connection");
 
         // Update status if not monitoring
         if (!m_monitor->isMonitoring()) {
@@ -606,4 +624,133 @@ void MainWindow::retranslateUi()
             ui->serverHistoryCombo->setItemText(0, "-- Select saved server --");
         }
     }
+}
+
+void MainWindow::onTestServerClicked()
+{
+    QString host = ui->proxyHostEdit->text().trimmed();
+    if (host.isEmpty()) {
+        ui->connectionStatusLabel->setText(tr_log("Please enter server address",
+                                                   QString::fromUtf8("\350\257\267\350\276\223\345\205\245\346\234\215\345\212\241\345\231\250\345\234\260\345\235\200")));
+        ui->connectionStatusLabel->setStyleSheet("color: orange;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        return;
+    }
+
+    // Validate IP address
+    struct in_addr addr;
+    if (inet_pton(AF_INET, host.toStdString().c_str(), &addr) != 1) {
+        ui->connectionStatusLabel->setText(tr_log("Invalid IP address",
+                                                   QString::fromUtf8("\346\227\240\346\225\210\347\232\204IP\345\234\260\345\235\200")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        return;
+    }
+
+    int port = ui->proxyPortSpin->value();
+
+    // Show testing status
+    ui->connectionStatusLabel->setText(tr_log("Testing...", QString::fromUtf8("\346\265\213\350\257\225\344\270\255...")));
+    ui->connectionStatusLabel->setStyleSheet("color: blue;");
+    ui->testServerButton->setEnabled(false);
+    QCoreApplication::processEvents();
+
+    appendLog(tr_log(QString("Testing connection to %1:%2...").arg(host).arg(port),
+                     QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245 %1:%2...").arg(host).arg(port)));
+
+    // Initialize Winsock if needed
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    // Create socket
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        ui->connectionStatusLabel->setText(tr_log("Socket error",
+                                                   QString::fromUtf8("\345\245\227\346\216\245\345\255\227\351\224\231\350\257\257")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log("[ERROR] Failed to create socket",
+                         QString::fromUtf8("[ERROR] \345\210\233\345\273\272\345\245\227\346\216\245\345\255\227\345\244\261\350\264\245")));
+        return;
+    }
+
+    // Set timeout (3 seconds)
+    DWORD timeout = 3000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+
+    // Connect to proxy server
+    sockaddr_in proxyAddr;
+    proxyAddr.sin_family = AF_INET;
+    proxyAddr.sin_addr.s_addr = addr.s_addr;
+    proxyAddr.sin_port = htons(static_cast<uint16_t>(port));
+
+    int result = ::connect(sock, reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
+    if (result == SOCKET_ERROR) {
+        closesocket(sock);
+        ui->connectionStatusLabel->setText(tr_log("Connection failed",
+                                                   QString::fromUtf8("\350\277\236\346\216\245\345\244\261\350\264\245")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log(QString("[ERROR] Cannot connect to %1:%2").arg(host).arg(port),
+                         QString::fromUtf8("[ERROR] \346\227\240\346\263\225\350\277\236\346\216\245 %1:%2").arg(host).arg(port)));
+        return;
+    }
+
+    // Try SOCKS5 handshake
+    uint8_t greeting[3] = {0x05, 0x01, 0x00};  // SOCKS5, 1 method, no auth
+    int sent = send(sock, reinterpret_cast<char*>(greeting), 3, 0);
+    if (sent != 3) {
+        closesocket(sock);
+        ui->connectionStatusLabel->setText(tr_log("Handshake failed",
+                                                   QString::fromUtf8("\346\217\241\346\211\213\345\244\261\350\264\245")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log("[ERROR] SOCKS5 handshake send failed",
+                         QString::fromUtf8("[ERROR] SOCKS5 \346\217\241\346\211\213\345\217\221\351\200\201\345\244\261\350\264\245")));
+        return;
+    }
+
+    // Receive response
+    uint8_t response[2];
+    int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
+    closesocket(sock);
+
+    if (received != 2 || response[0] != 0x05) {
+        ui->connectionStatusLabel->setText(tr_log("Not a SOCKS5 server",
+                                                   QString::fromUtf8("\351\235\236SOCKS5\346\234\215\345\212\241\345\231\250")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log("[ERROR] Server is not a valid SOCKS5 proxy",
+                         QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\344\270\215\346\230\257\346\234\211\346\225\210\347\232\204SOCKS5\344\273\243\347\220\206")));
+        return;
+    }
+
+    // Success!
+    ui->connectionStatusLabel->setText(tr_log("Connected", QString::fromUtf8("\345\267\262\350\277\236\346\216\245")));
+    ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
+    m_serverConnected = true;
+    ui->startMonitorButton->setEnabled(true);
+    ui->testServerButton->setEnabled(true);
+    appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable").arg(host).arg(port),
+                     QString::fromUtf8("[\346\210\220\345\212\237] SOCKS5 \346\234\215\345\212\241\345\231\250 %1:%2 \345\217\257\350\276\276").arg(host).arg(port)));
+}
+
+void MainWindow::onProxySettingsChanged()
+{
+    // When proxy settings change, mark as untested and disable monitoring
+    m_serverConnected = false;
+    ui->startMonitorButton->setEnabled(false);
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QString::fromUtf8("\346\234\252\346\265\213\350\257\225")));
+    ui->connectionStatusLabel->setStyleSheet("color: gray;");
 }

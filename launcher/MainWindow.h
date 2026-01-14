@@ -43,11 +43,16 @@ private slots:
     void onSaveServerClicked();
     void onDeleteServerClicked();
 
+    // Server connectivity test
+    void onTestServerClicked();
+    void onProxySettingsChanged();
+
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;
     bool m_isChinese;
     QSettings* m_settings;
+    bool m_serverConnected;  // Track if server is reachable
 
     void updateStatus(const QString& message);
     void appendLog(const QString& message);
