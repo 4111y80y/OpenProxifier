@@ -76,6 +76,10 @@ void AntigravityWindow::onCheckIpClicked()
 
     QNetworkRequest request(QUrl("http://httpbin.org/ip"));
     request.setHeader(QNetworkRequest::UserAgentHeader, "Antigravity/1.0");
+    // Disable connection caching - force new connection each time
+    // This ensures injected hooks take effect immediately
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    request.setRawHeader("Connection", "close");
     m_networkManager->get(request);
 }
 
