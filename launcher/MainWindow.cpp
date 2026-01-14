@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QLocale>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -14,8 +15,26 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , m_monitor(new ProcessMonitor(this))
+    , m_isChinese(false)
 {
     ui->setupUi(this);
+
+    // Setup language selector
+    ui->languageCombo->addItem("English", "en");
+    ui->languageCombo->addItem(QString::fromUtf8("\344\270\255\346\226\207"), "zh");  // UTF-8 encoded Chinese chars
+
+    // Detect system language
+    QString sysLang = QLocale::system().name();
+    if (sysLang.startsWith("zh")) {
+        ui->languageCombo->setCurrentIndex(1);
+        m_isChinese = true;
+    } else {
+        ui->languageCombo->setCurrentIndex(0);
+        m_isChinese = false;
+    }
+
+    connect(ui->languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onLanguageChanged);
 
     // Connect UI signals
     connect(ui->addExeButton, &QPushButton::clicked, this, &MainWindow::onAddExeClicked);
@@ -52,9 +71,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Auto-add Antigravity.exe as default target
     ui->exeListWidget->addItem("Antigravity.exe");
-    appendLog("Added default target: Antigravity.exe");
+    appendLog(m_isChinese ? QString::fromUtf8("\345\267\262\346\267\273\345\212\240\351\273\230\350\256\244\347\233\256\346\240\207: Antigravity.exe")
+                          : "Added default target: Antigravity.exe");
 
-    updateStatus("Ready");
+    // Apply initial language
+    retranslateUi();
+
+    updateStatus(m_isChinese ? QString::fromUtf8("\345\260\261\347\273\252") : "Ready");
 }
 
 MainWindow::~MainWindow()
@@ -259,4 +282,51 @@ void MainWindow::updateProxyConfig()
         ui->usernameEdit->text(),
         ui->passwordEdit->text()
     );
+}
+
+void MainWindow::onLanguageChanged(int index)
+{
+    m_isChinese = (index == 1);
+    retranslateUi();
+    appendLog(m_isChinese ? QString::fromUtf8("\350\257\255\350\250\200\345\267\262\345\210\207\346\215\242\344\270\272\344\270\255\346\226\207")
+                          : "Language changed to English");
+}
+
+void MainWindow::retranslateUi()
+{
+    if (m_isChinese) {
+        // Chinese translations
+        setWindowTitle("OpenProxifier");
+        ui->proxyGroup->setTitle(QString::fromUtf8("SOCKS5 \344\273\243\347\220\206\350\256\276\347\275\256"));
+        ui->hostLabel->setText(QString::fromUtf8("\346\234\215\345\212\241\345\231\250:"));
+        ui->portLabel->setText(QString::fromUtf8("\347\253\257\345\217\243:"));
+        ui->authCheckBox->setText(QString::fromUtf8("\351\234\200\350\246\201\350\272\253\344\273\275\351\252\214\350\257\201"));
+        ui->userLabel->setText(QString::fromUtf8("\347\224\250\346\210\267\345\220\215:"));
+        ui->passLabel->setText(QString::fromUtf8("\345\257\206\347\240\201:"));
+        ui->targetGroup->setTitle(QString::fromUtf8("\347\233\256\346\240\207\350\277\233\347\250\213 (\350\207\252\345\212\250\347\233\221\346\216\247)"));
+        ui->exeNameEdit->setPlaceholderText(QString::fromUtf8("\350\276\223\345\205\245\347\250\213\345\272\217\345\220\215 (\344\276\213\345\246\202: curl.exe)"));
+        ui->addExeButton->setText(QString::fromUtf8("\346\267\273\345\212\240"));
+        ui->removeExeButton->setText(QString::fromUtf8("\345\210\240\351\231\244"));
+        ui->startMonitorButton->setText(QString::fromUtf8("\345\274\200\345\247\213\347\233\221\346\216\247"));
+        ui->stopMonitorButton->setText(QString::fromUtf8("\345\201\234\346\255\242\347\233\221\346\216\247"));
+        ui->startMonitorButton->setToolTip(QString::fromUtf8("\347\233\221\346\216\247\347\263\273\347\273\237\344\270\255\347\232\204\347\233\256\346\240\207\350\277\233\347\250\213\345\271\266\350\207\252\345\212\250\346\263\250\345\205\245"));
+        ui->logGroup->setTitle(QString::fromUtf8("\346\264\273\345\212\250\346\227\245\345\277\227"));
+    } else {
+        // English translations
+        setWindowTitle("OpenProxifier");
+        ui->proxyGroup->setTitle("SOCKS5 Proxy Settings");
+        ui->hostLabel->setText("Server:");
+        ui->portLabel->setText("Port:");
+        ui->authCheckBox->setText("Require Authentication");
+        ui->userLabel->setText("Username:");
+        ui->passLabel->setText("Password:");
+        ui->targetGroup->setTitle("Target Processes (Auto-Monitor)");
+        ui->exeNameEdit->setPlaceholderText("Enter exe name (e.g., curl.exe)");
+        ui->addExeButton->setText("Add");
+        ui->removeExeButton->setText("Remove");
+        ui->startMonitorButton->setText("Start Monitoring");
+        ui->stopMonitorButton->setText("Stop Monitoring");
+        ui->startMonitorButton->setToolTip("Monitor system for target processes and auto-inject");
+        ui->logGroup->setTitle("Activity Log");
+    }
 }

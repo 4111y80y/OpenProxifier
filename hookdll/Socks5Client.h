@@ -34,8 +34,11 @@ public:
     );
 
 private:
-    // SOCKS5 handshake (no auth)
+    // SOCKS5 handshake (supports no-auth and username/password)
     static bool DoHandshake(SOCKET sock);
+
+    // SOCKS5 username/password authentication (RFC 1929)
+    static bool DoAuthentication(SOCKET sock);
 
     // SOCKS5 CONNECT request
     static bool DoConnect(SOCKET sock, uint32_t targetIp, uint16_t targetPort);

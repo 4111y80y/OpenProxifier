@@ -1,6 +1,7 @@
 #include "Socks5Client.h"
 #include "WinsockHooks.h"
 #include "Logger.h"
+#include <vector>
 
 namespace MiniProxifier {
 
@@ -44,11 +45,31 @@ bool Socks5Client::ConnectToProxy(SOCKET sock) {
 }
 
 bool Socks5Client::DoHandshake(SOCKET sock) {
-    // SOCKS5 greeting: VER(0x05) NMETHODS(0x01) METHODS(0x00=no auth)
-    uint8_t greeting[3] = {0x05, 0x01, 0x00};
+    // SOCKS5 greeting with auth methods:
+    // VER(0x05) NMETHODS METHODS...
+    // 0x00 = no auth, 0x02 = username/password
+    uint8_t greeting[4];
+    int greetingLen;
 
-    int sent = send(sock, reinterpret_cast<char*>(greeting), 3, 0);
-    if (sent != 3) {
+    if (s_proxyInfo.authRequired && !s_proxyInfo.username.empty()) {
+        // Offer both no-auth and username/password
+        greeting[0] = 0x05;  // VER
+        greeting[1] = 0x02;  // NMETHODS
+        greeting[2] = 0x00;  // METHOD: no auth
+        greeting[3] = 0x02;  // METHOD: username/password
+        greetingLen = 4;
+        LOG("SOCKS5: Offering auth methods: no-auth, username/password");
+    } else {
+        // Only offer no-auth
+        greeting[0] = 0x05;  // VER
+        greeting[1] = 0x01;  // NMETHODS
+        greeting[2] = 0x00;  // METHOD: no auth
+        greetingLen = 3;
+        LOG("SOCKS5: Offering auth method: no-auth only");
+    }
+
+    int sent = send(sock, reinterpret_cast<char*>(greeting), greetingLen, 0);
+    if (sent != greetingLen) {
         LOG("Failed to send SOCKS5 greeting: %d", WSAGetLastError());
         return false;
     }
@@ -66,12 +87,74 @@ bool Socks5Client::DoHandshake(SOCKET sock) {
         return false;
     }
 
-    if (response[1] != 0x00) {
+    if (response[1] == 0x00) {
+        // No authentication required
+        LOG("SOCKS5 handshake successful (no auth)");
+        return true;
+    } else if (response[1] == 0x02) {
+        // Username/password authentication required (RFC 1929)
+        LOG("SOCKS5: Server requires username/password auth");
+        return DoAuthentication(sock);
+    } else if (response[1] == 0xFF) {
+        LOG("SOCKS5: No acceptable auth methods");
+        return false;
+    } else {
         LOG("SOCKS5 auth method not supported: 0x%02X", response[1]);
         return false;
     }
+}
 
-    LOG("SOCKS5 handshake successful (no auth)");
+bool Socks5Client::DoAuthentication(SOCKET sock) {
+    // RFC 1929 Username/Password Authentication
+    // Request: VER(0x01) ULEN(1) USERNAME(1-255) PLEN(1) PASSWORD(1-255)
+
+    if (s_proxyInfo.username.empty()) {
+        LOG("SOCKS5 auth: No username configured");
+        return false;
+    }
+
+    size_t ulen = s_proxyInfo.username.length();
+    size_t plen = s_proxyInfo.password.length();
+
+    if (ulen > 255 || plen > 255) {
+        LOG("SOCKS5 auth: Username or password too long");
+        return false;
+    }
+
+    // Build auth request
+    std::vector<uint8_t> authReq;
+    authReq.push_back(0x01);  // VER
+    authReq.push_back(static_cast<uint8_t>(ulen));
+    authReq.insert(authReq.end(), s_proxyInfo.username.begin(), s_proxyInfo.username.end());
+    authReq.push_back(static_cast<uint8_t>(plen));
+    authReq.insert(authReq.end(), s_proxyInfo.password.begin(), s_proxyInfo.password.end());
+
+    int sent = send(sock, reinterpret_cast<char*>(authReq.data()),
+                    static_cast<int>(authReq.size()), 0);
+    if (sent != static_cast<int>(authReq.size())) {
+        LOG("Failed to send SOCKS5 auth request: %d", WSAGetLastError());
+        return false;
+    }
+
+    // Receive auth response: VER(0x01) STATUS
+    uint8_t response[2];
+    int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
+    if (received != 2) {
+        LOG("Failed to receive SOCKS5 auth response: %d", WSAGetLastError());
+        return false;
+    }
+
+    if (response[0] != 0x01) {
+        LOG("Invalid SOCKS5 auth version: 0x%02X", response[0]);
+        return false;
+    }
+
+    if (response[1] != 0x00) {
+        LOG("SOCKS5 authentication failed (status: 0x%02X)", response[1]);
+        return false;
+    }
+
+    LOG("SOCKS5 authentication successful");
     return true;
 }
 

@@ -33,15 +33,20 @@ private slots:
     void onMonitoringStopped();
     void onMonitorError(const QString& message);
 
+    // Language
+    void onLanguageChanged(int index);
+
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;
+    bool m_isChinese;
 
     void updateStatus(const QString& message);
     void appendLog(const QString& message);
     bool validateProxySettings();
     QString getHookDllPath();
     void updateProxyConfig();
+    void retranslateUi();
 };
 
 #endif // MAINWINDOW_H

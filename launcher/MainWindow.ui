@@ -200,11 +200,29 @@ QPushButton:disabled { background-color: #cccccc; }</string>
      </widget>
     </item>
     <item>
-     <widget class="QLabel" name="statusLabel">
-      <property name="text">
-       <string>Status: Ready</string>
-      </property>
-     </widget>
+     <layout class="QHBoxLayout" name="statusLayout">
+      <item>
+       <widget class="QLabel" name="statusLabel">
+        <property name="text">
+         <string>Status: Ready</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QComboBox" name="languageCombo">
+        <property name="minimumWidth">
+         <number>80</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </item>
    </layout>
   </widget>
