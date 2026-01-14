@@ -649,6 +649,20 @@ void MainWindow::onTestServerClicked()
         return;
     }
 
+    // Check if auth is required but credentials are empty
+    bool authRequired = ui->authCheckBox->isChecked();
+    QString username = ui->usernameEdit->text();
+    QString password = ui->passwordEdit->text();
+
+    if (authRequired && username.isEmpty()) {
+        ui->connectionStatusLabel->setText(tr_log("Username required",
+                                                   QString::fromUtf8("\351\234\200\350\246\201\347\224\250\346\210\267\345\220\215")));
+        ui->connectionStatusLabel->setStyleSheet("color: orange;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        return;
+    }
+
     int port = ui->proxyPortSpin->value();
 
     // Show testing status
@@ -657,8 +671,8 @@ void MainWindow::onTestServerClicked()
     ui->testServerButton->setEnabled(false);
     QCoreApplication::processEvents();
 
-    appendLog(tr_log(QString("Testing connection to %1:%2...").arg(host).arg(port),
-                     QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245 %1:%2...").arg(host).arg(port)));
+    appendLog(tr_log(QString("Testing connection to %1:%2%3...").arg(host).arg(port).arg(authRequired ? " (with auth)" : ""),
+                     QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QString::fromUtf8(" (\345\270\246\350\256\244\350\257\201)") : "")));
 
     // Initialize Winsock if needed
     WSADATA wsaData;
@@ -703,10 +717,24 @@ void MainWindow::onTestServerClicked()
         return;
     }
 
-    // Try SOCKS5 handshake
-    uint8_t greeting[3] = {0x05, 0x01, 0x00};  // SOCKS5, 1 method, no auth
-    int sent = send(sock, reinterpret_cast<char*>(greeting), 3, 0);
-    if (sent != 3) {
+    // SOCKS5 handshake - offer both no-auth and username/password auth
+    uint8_t greeting[4];
+    int greetingLen;
+    if (authRequired) {
+        greeting[0] = 0x05;  // VER
+        greeting[1] = 0x02;  // NMETHODS
+        greeting[2] = 0x00;  // METHOD: no auth
+        greeting[3] = 0x02;  // METHOD: username/password
+        greetingLen = 4;
+    } else {
+        greeting[0] = 0x05;  // VER
+        greeting[1] = 0x01;  // NMETHODS
+        greeting[2] = 0x00;  // METHOD: no auth
+        greetingLen = 3;
+    }
+
+    int sent = send(sock, reinterpret_cast<char*>(greeting), greetingLen, 0);
+    if (sent != greetingLen) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Handshake failed",
                                                    QString::fromUtf8("\346\217\241\346\211\213\345\244\261\350\264\245")));
@@ -719,12 +747,12 @@ void MainWindow::onTestServerClicked()
         return;
     }
 
-    // Receive response
+    // Receive handshake response
     uint8_t response[2];
     int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
-    closesocket(sock);
 
     if (received != 2 || response[0] != 0x05) {
+        closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Not a SOCKS5 server",
                                                    QString::fromUtf8("\351\235\236SOCKS5\346\234\215\345\212\241\345\231\250")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
@@ -736,14 +764,125 @@ void MainWindow::onTestServerClicked()
         return;
     }
 
+    // Check server's chosen auth method
+    if (response[1] == 0xFF) {
+        closesocket(sock);
+        ui->connectionStatusLabel->setText(tr_log("No acceptable auth",
+                                                   QString::fromUtf8("\346\227\240\345\217\257\347\224\250\350\256\244\350\257\201\346\226\271\345\274\217")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log("[ERROR] Server rejected all authentication methods",
+                         QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\346\213\222\347\273\235\344\272\206\346\211\200\346\234\211\350\256\244\350\257\201\346\226\271\345\274\217")));
+        return;
+    }
+
+    // If server requires username/password auth (0x02)
+    if (response[1] == 0x02) {
+        if (!authRequired || username.isEmpty()) {
+            closesocket(sock);
+            ui->connectionStatusLabel->setText(tr_log("Auth required by server",
+                                                       QString::fromUtf8("\346\234\215\345\212\241\345\231\250\351\234\200\350\246\201\350\256\244\350\257\201")));
+            ui->connectionStatusLabel->setStyleSheet("color: orange;");
+            m_serverConnected = false;
+            ui->startMonitorButton->setEnabled(false);
+            ui->testServerButton->setEnabled(true);
+            appendLog(tr_log("[ERROR] Server requires authentication but none provided",
+                             QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\351\234\200\350\246\201\350\256\244\350\257\201\344\275\206\346\234\252\346\217\220\344\276\233")));
+            return;
+        }
+
+        // RFC 1929 Username/Password Authentication
+        std::string user = username.toStdString();
+        std::string pass = password.toStdString();
+
+        if (user.length() > 255 || pass.length() > 255) {
+            closesocket(sock);
+            ui->connectionStatusLabel->setText(tr_log("Credentials too long",
+                                                       QString::fromUtf8("\345\207\255\350\257\201\350\277\207\351\225\277")));
+            ui->connectionStatusLabel->setStyleSheet("color: red;");
+            m_serverConnected = false;
+            ui->startMonitorButton->setEnabled(false);
+            ui->testServerButton->setEnabled(true);
+            return;
+        }
+
+        // Build auth request: VER(0x01) ULEN USERNAME PLEN PASSWORD
+        std::vector<uint8_t> authReq;
+        authReq.push_back(0x01);  // VER
+        authReq.push_back(static_cast<uint8_t>(user.length()));
+        authReq.insert(authReq.end(), user.begin(), user.end());
+        authReq.push_back(static_cast<uint8_t>(pass.length()));
+        authReq.insert(authReq.end(), pass.begin(), pass.end());
+
+        sent = send(sock, reinterpret_cast<char*>(authReq.data()), static_cast<int>(authReq.size()), 0);
+        if (sent != static_cast<int>(authReq.size())) {
+            closesocket(sock);
+            ui->connectionStatusLabel->setText(tr_log("Auth send failed",
+                                                       QString::fromUtf8("\350\256\244\350\257\201\345\217\221\351\200\201\345\244\261\350\264\245")));
+            ui->connectionStatusLabel->setStyleSheet("color: red;");
+            m_serverConnected = false;
+            ui->startMonitorButton->setEnabled(false);
+            ui->testServerButton->setEnabled(true);
+            return;
+        }
+
+        // Receive auth response: VER(0x01) STATUS
+        uint8_t authResponse[2];
+        received = recv(sock, reinterpret_cast<char*>(authResponse), 2, 0);
+        if (received != 2 || authResponse[0] != 0x01) {
+            closesocket(sock);
+            ui->connectionStatusLabel->setText(tr_log("Auth response error",
+                                                       QString::fromUtf8("\350\256\244\350\257\201\345\223\215\345\272\224\351\224\231\350\257\257")));
+            ui->connectionStatusLabel->setStyleSheet("color: red;");
+            m_serverConnected = false;
+            ui->startMonitorButton->setEnabled(false);
+            ui->testServerButton->setEnabled(true);
+            return;
+        }
+
+        if (authResponse[1] != 0x00) {
+            closesocket(sock);
+            ui->connectionStatusLabel->setText(tr_log("Auth failed (wrong password)",
+                                                       QString::fromUtf8("\350\256\244\350\257\201\345\244\261\350\264\245 (\345\257\206\347\240\201\351\224\231\350\257\257)")));
+            ui->connectionStatusLabel->setStyleSheet("color: red;");
+            m_serverConnected = false;
+            ui->startMonitorButton->setEnabled(false);
+            ui->testServerButton->setEnabled(true);
+            appendLog(tr_log("[ERROR] Authentication failed - wrong username or password",
+                             QString::fromUtf8("[ERROR] \350\256\244\350\257\201\345\244\261\350\264\245 - \347\224\250\346\210\267\345\220\215\346\210\226\345\257\206\347\240\201\351\224\231\350\257\257")));
+            return;
+        }
+
+        appendLog(tr_log("[SUCCESS] Authentication successful",
+                         QString::fromUtf8("[\346\210\220\345\212\237] \350\256\244\350\257\201\346\210\220\345\212\237")));
+    } else if (response[1] != 0x00) {
+        closesocket(sock);
+        ui->connectionStatusLabel->setText(tr_log("Unsupported auth method",
+                                                   QString::fromUtf8("\344\270\215\346\224\257\346\214\201\347\232\204\350\256\244\350\257\201\346\226\271\345\274\217")));
+        ui->connectionStatusLabel->setStyleSheet("color: red;");
+        m_serverConnected = false;
+        ui->startMonitorButton->setEnabled(false);
+        ui->testServerButton->setEnabled(true);
+        appendLog(tr_log(QString("[ERROR] Unsupported auth method: 0x%1").arg(response[1], 2, 16, QChar('0')),
+                         QString::fromUtf8("[ERROR] \344\270\215\346\224\257\346\214\201\347\232\204\350\256\244\350\257\201\346\226\271\345\274\217: 0x%1").arg(response[1], 2, 16, QChar('0'))));
+        return;
+    }
+
+    closesocket(sock);
+
     // Success!
-    ui->connectionStatusLabel->setText(tr_log("Connected", QString::fromUtf8("\345\267\262\350\277\236\346\216\245")));
+    QString statusText = authRequired ?
+        tr_log("Connected (auth OK)", QString::fromUtf8("\345\267\262\350\277\236\346\216\245 (\350\256\244\350\257\201\346\210\220\345\212\237)")) :
+        tr_log("Connected", QString::fromUtf8("\345\267\262\350\277\236\346\216\245"));
+    ui->connectionStatusLabel->setText(statusText);
     ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
     m_serverConnected = true;
     ui->startMonitorButton->setEnabled(true);
     ui->testServerButton->setEnabled(true);
-    appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable").arg(host).arg(port),
-                     QString::fromUtf8("[\346\210\220\345\212\237] SOCKS5 \346\234\215\345\212\241\345\231\250 %1:%2 \345\217\257\350\276\276").arg(host).arg(port)));
+    appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(host).arg(port).arg(authRequired ? " (authenticated)" : ""),
+                     QString::fromUtf8("[\346\210\220\345\212\237] SOCKS5 \346\234\215\345\212\241\345\231\250 %1:%2 \345\217\257\350\276\276%3").arg(host).arg(port).arg(authRequired ? QString::fromUtf8(" (\345\267\262\350\256\244\350\257\201)") : "")));
 }
 
 void MainWindow::onProxySettingsChanged()
