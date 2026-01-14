@@ -789,6 +789,7 @@ QString ProcessMonitor::injectIntoProcess(DWORD processId)
                                       MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!remoteMem) {
         DWORD err = GetLastError();
+        MonitorLog("VirtualAllocEx failed for PID %d, error: %d", processId, err);
         CloseHandle(hProcess);
         return QString("VirtualAllocEx failed (error %1)").arg(err);
     }
