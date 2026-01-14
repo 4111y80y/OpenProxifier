@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <tlhelp32.h>
+#include <psapi.h>
 #include <cstdio>
 #include <comdef.h>
 #include <Wbemidl.h>
@@ -702,6 +703,26 @@ bool ProcessMonitor::createProxySharedMemory(DWORD processId)
     return true;
 }
 
+// Check if the target process already has our DLL loaded
+static bool IsAlreadyInjected(HANDLE hProcess, const QString& dllPath) {
+    HMODULE hMods[1024];
+    DWORD cbNeeded;
+
+    if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+        int moduleCount = cbNeeded / sizeof(HMODULE);
+        for (int i = 0; i < moduleCount; i++) {
+            wchar_t szModName[MAX_PATH];
+            if (GetModuleFileNameExW(hProcess, hMods[i], szModName, MAX_PATH)) {
+                QString modName = QString::fromWCharArray(szModName);
+                if (modName.toLower().contains("openproxifierhook")) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 QString ProcessMonitor::injectIntoProcess(DWORD processId)
 {
     MonitorLog("injectIntoProcess called for PID %d", processId);
@@ -715,6 +736,13 @@ QString ProcessMonitor::injectIntoProcess(DWORD processId)
         DWORD err = GetLastError();
         MonitorLog("Failed to open process %d, error: %d", processId, err);
         return QString("Failed to open process (error %1)").arg(err);
+    }
+
+    // Check if already injected (by parent process's CreateProcess hook)
+    if (IsAlreadyInjected(hProcess, m_dllPath)) {
+        MonitorLog("Process %d already has Hook DLL loaded, skipping", processId);
+        CloseHandle(hProcess);
+        return QString();  // Return success (empty string)
     }
 
     // Check if target process architecture matches our DLL
