@@ -20,6 +20,18 @@ public:
     static int (WINAPI* Real_WSAConnect)(SOCKET s, const sockaddr* name, int namelen,
         LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS);
 
+    // Socket I/O hooks for socket mapping (IPv6 -> IPv4 proxy)
+    static int (WINAPI* Real_send)(SOCKET s, const char* buf, int len, int flags);
+    static int (WINAPI* Real_recv)(SOCKET s, char* buf, int len, int flags);
+    static int (WINAPI* Real_WSASend)(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+        LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
+        LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+    static int (WINAPI* Real_WSARecv)(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+        LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
+        LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+    static int (WINAPI* Real_closesocket)(SOCKET s);
+    static int (WINAPI* Real_shutdown)(SOCKET s, int how);
+
     // CreateProcess hooks for child process injection
     static BOOL (WINAPI* Real_CreateProcessW)(
         LPCWSTR lpApplicationName, LPWSTR lpCommandLine,
@@ -43,6 +55,18 @@ private:
     static int WINAPI Hooked_connect(SOCKET s, const sockaddr* name, int namelen);
     static int WINAPI Hooked_WSAConnect(SOCKET s, const sockaddr* name, int namelen,
         LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS);
+
+    // Socket I/O hooks for socket mapping
+    static int WINAPI Hooked_send(SOCKET s, const char* buf, int len, int flags);
+    static int WINAPI Hooked_recv(SOCKET s, char* buf, int len, int flags);
+    static int WINAPI Hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+        LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
+        LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+    static int WINAPI Hooked_WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+        LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
+        LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine);
+    static int WINAPI Hooked_closesocket(SOCKET s);
+    static int WINAPI Hooked_shutdown(SOCKET s, int how);
 
     // CreateProcess hooks
     static BOOL WINAPI Hooked_CreateProcessW(

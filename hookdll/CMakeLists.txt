@@ -8,6 +8,8 @@ add_library(MiniProxifierHook SHARED
     WinsockHooks.cpp
     WinsockHooks.h
     SocketState.h
+    SocketMapper.cpp
+    SocketMapper.h
 )
 
 # Link dependencies

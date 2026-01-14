@@ -1,5 +1,6 @@
 #include "WinsockHooks.h"
 #include "HookManager.h"
+#include "SocketMapper.h"
 #include "Socks5Client.h"
 #include "SocketState.h"
 #include "Logger.h"
@@ -37,6 +38,18 @@ namespace MiniProxifier {
 int (WINAPI* WinsockHooks::Real_connect)(SOCKET s, const sockaddr* name, int namelen) = connect;
 int (WINAPI* WinsockHooks::Real_WSAConnect)(SOCKET s, const sockaddr* name, int namelen,
     LPWSABUF lpCallerData, LPWSABUF lpCalleeData, LPQOS lpSQOS, LPQOS lpGQOS) = WSAConnect;
+
+// Socket I/O function pointers for socket mapping
+int (WINAPI* WinsockHooks::Real_send)(SOCKET s, const char* buf, int len, int flags) = send;
+int (WINAPI* WinsockHooks::Real_recv)(SOCKET s, char* buf, int len, int flags) = recv;
+int (WINAPI* WinsockHooks::Real_WSASend)(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+    LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
+    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) = WSASend;
+int (WINAPI* WinsockHooks::Real_WSARecv)(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+    LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
+    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) = WSARecv;
+int (WINAPI* WinsockHooks::Real_closesocket)(SOCKET s) = closesocket;
+int (WINAPI* WinsockHooks::Real_shutdown)(SOCKET s, int how) = shutdown;
 
 // CreateProcess original pointers
 BOOL (WINAPI* WinsockHooks::Real_CreateProcessW)(
@@ -103,7 +116,44 @@ bool WinsockHooks::AttachHooks() {
         return false;
     }
 
-    DebugLog("All hooks attached (connect, WSAConnect, CreateProcess, ShellExecuteEx)");
+    // Hook socket I/O functions for socket mapping (IPv6 -> IPv4 proxy)
+    error = DetourAttach(&(PVOID&)Real_send, Hooked_send);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach send hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_recv, Hooked_recv);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach recv hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_WSASend, Hooked_WSASend);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach WSASend hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_WSARecv, Hooked_WSARecv);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach WSARecv hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_closesocket, Hooked_closesocket);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach closesocket hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_shutdown, Hooked_shutdown);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach shutdown hook: %ld", error);
+        return false;
+    }
+
+    DebugLog("All hooks attached (connect, WSAConnect, CreateProcess, ShellExecuteEx, send, recv, closesocket)");
     LOG("Winsock hooks attached successfully");
     return true;
 }
@@ -115,6 +165,13 @@ bool WinsockHooks::DetachHooks() {
     DetourDetach(&(PVOID&)Real_CreateProcessA, Hooked_CreateProcessA);
     DetourDetach(&(PVOID&)Real_ShellExecuteExW, Hooked_ShellExecuteExW);
     DetourDetach(&(PVOID&)Real_ShellExecuteExA, Hooked_ShellExecuteExA);
+    // Socket I/O hooks
+    DetourDetach(&(PVOID&)Real_send, Hooked_send);
+    DetourDetach(&(PVOID&)Real_recv, Hooked_recv);
+    DetourDetach(&(PVOID&)Real_WSASend, Hooked_WSASend);
+    DetourDetach(&(PVOID&)Real_WSARecv, Hooked_WSARecv);
+    DetourDetach(&(PVOID&)Real_closesocket, Hooked_closesocket);
+    DetourDetach(&(PVOID&)Real_shutdown, Hooked_shutdown);
     LOG("Winsock hooks detached");
     return true;
 }
@@ -230,10 +287,54 @@ int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen)
             }
         }
 
-        // For pure IPv6 addresses, pass through directly
-        // Most SOCKS5 proxies (including v2rayN) don't support IPv6 targets
-        DebugLog("Pure IPv6 address, passing through (proxy doesn't support IPv6 targets)");
-        return Real_connect(s, name, namelen);
+        // For pure IPv6 addresses, create an IPv4 socket to connect to the proxy
+        // and use socket mapping to redirect I/O operations
+        if (!Socks5Client::IsProxyConfigured()) {
+            DebugLog("No proxy configured for IPv6, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        // Skip localhost IPv6 (::1)
+        bool isLocalhost6 = true;
+        for (int i = 0; i < 15; i++) {
+            if (addr6->sin6_addr.s6_addr[i] != 0) {
+                isLocalhost6 = false;
+                break;
+            }
+        }
+        if (isLocalhost6 && addr6->sin6_addr.s6_addr[15] == 1) {
+            DebugLog("IPv6 localhost connection, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        DebugLog("Creating IPv4 socket for IPv6 target proxy connection...");
+
+        // Create a new IPv4 socket to connect to the proxy
+        SOCKET ipv4Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (ipv4Socket == INVALID_SOCKET) {
+            DebugLog("Failed to create IPv4 socket: %d", WSAGetLastError());
+            return Real_connect(s, name, namelen);  // Fallback to direct
+        }
+
+        // Set IPv4 socket to blocking mode
+        u_long blocking = 0;
+        ioctlsocket(ipv4Socket, FIONBIO, &blocking);
+
+        // Connect to proxy and complete SOCKS5 handshake with IPv6 target
+        bool success = Socks5Client::ConnectThroughProxyV6(ipv4Socket, addr6->sin6_addr, targetPort);
+
+        if (success) {
+            // Add socket mapping: original IPv6 socket -> IPv4 proxy socket
+            SocketMapper::getInstance().addMapping(s, ipv4Socket);
+            DebugLog("SOCKS5 IPv6 connection established, socket mapped: %llu -> %llu",
+                (unsigned long long)s, (unsigned long long)ipv4Socket);
+            return 0;  // Success
+        } else {
+            // Proxy connection failed, close IPv4 socket and fallback to direct
+            Real_closesocket(ipv4Socket);
+            DebugLog("SOCKS5 IPv6 connection failed, falling back to direct");
+            return Real_connect(s, name, namelen);
+        }
     }
     else {
         // Other address families, pass through
@@ -536,6 +637,45 @@ BOOL WINAPI WinsockHooks::Hooked_ShellExecuteExA(SHELLEXECUTEINFOA* pExecInfo) {
     pExecInfo->fMask = originalMask;
 
     return result;
+}
+
+// Socket I/O hooks for socket mapping
+int WINAPI WinsockHooks::Hooked_send(SOCKET s, const char* buf, int len, int flags) {
+    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+    return Real_send(actualSocket, buf, len, flags);
+}
+
+int WINAPI WinsockHooks::Hooked_recv(SOCKET s, char* buf, int len, int flags) {
+    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+    return Real_recv(actualSocket, buf, len, flags);
+}
+
+int WINAPI WinsockHooks::Hooked_WSASend(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+    LPDWORD lpNumberOfBytesSent, DWORD dwFlags, LPWSAOVERLAPPED lpOverlapped,
+    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
+    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+    return Real_WSASend(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesSent,
+        dwFlags, lpOverlapped, lpCompletionRoutine);
+}
+
+int WINAPI WinsockHooks::Hooked_WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+    LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags, LPWSAOVERLAPPED lpOverlapped,
+    LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
+    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+    return Real_WSARecv(actualSocket, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd,
+        lpFlags, lpOverlapped, lpCompletionRoutine);
+}
+
+int WINAPI WinsockHooks::Hooked_closesocket(SOCKET s) {
+    // Close the replacement socket if mapped
+    SocketMapper::getInstance().closeAndRemove(s);
+    // Close the original socket
+    return Real_closesocket(s);
+}
+
+int WINAPI WinsockHooks::Hooked_shutdown(SOCKET s, int how) {
+    SOCKET actualSocket = SocketMapper::getInstance().getReplacementSocket(s);
+    return Real_shutdown(actualSocket, how);
 }
 
 } // namespace MiniProxifier
