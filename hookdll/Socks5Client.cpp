@@ -208,7 +208,60 @@ bool Socks5Client::DoConnect(SOCKET sock, uint32_t targetIp, uint16_t targetPort
         return false;
     }
 
-    LOG("SOCKS5 CONNECT successful");
+    LOG("SOCKS5 CONNECT successful (IPv4)");
+    return true;
+}
+
+bool Socks5Client::DoConnectV6(SOCKET sock, const in6_addr& targetIp6, uint16_t targetPort) {
+    // SOCKS5 CONNECT request for IPv6:
+    // VER(0x05) CMD(0x01=CONNECT) RSV(0x00) ATYP(0x04=IPv6) DST.ADDR(16) DST.PORT(2)
+    uint8_t request[22];
+    request[0] = 0x05;  // VER
+    request[1] = 0x01;  // CMD = CONNECT
+    request[2] = 0x00;  // RSV
+    request[3] = 0x04;  // ATYP = IPv6
+    memcpy(&request[4], &targetIp6, 16);   // DST.ADDR (16 bytes)
+    memcpy(&request[20], &targetPort, 2);  // DST.PORT (already in network byte order)
+
+    int sent = send(sock, reinterpret_cast<char*>(request), 22, 0);
+    if (sent != 22) {
+        LOG("Failed to send SOCKS5 CONNECT request (IPv6): %d", WSAGetLastError());
+        return false;
+    }
+
+    // Receive response:
+    // VER(0x05) REP RSV(0x00) ATYP BND.ADDR BND.PORT
+    // For IPv6: 4 + 16 + 2 = 22 bytes
+    uint8_t response[22];
+    int received = recv(sock, reinterpret_cast<char*>(response), 22, 0);
+    if (received < 4) {
+        LOG("Failed to receive SOCKS5 CONNECT response (IPv6): %d (received %d bytes)",
+            WSAGetLastError(), received);
+        return false;
+    }
+
+    if (response[0] != 0x05) {
+        LOG("Invalid SOCKS version in response: 0x%02X", response[0]);
+        return false;
+    }
+
+    if (response[1] != 0x00) {
+        const char* errorMsg = "Unknown error";
+        switch (response[1]) {
+            case 0x01: errorMsg = "General SOCKS server failure"; break;
+            case 0x02: errorMsg = "Connection not allowed by ruleset"; break;
+            case 0x03: errorMsg = "Network unreachable"; break;
+            case 0x04: errorMsg = "Host unreachable"; break;
+            case 0x05: errorMsg = "Connection refused"; break;
+            case 0x06: errorMsg = "TTL expired"; break;
+            case 0x07: errorMsg = "Command not supported"; break;
+            case 0x08: errorMsg = "Address type not supported"; break;
+        }
+        LOG("SOCKS5 CONNECT failed (IPv6): %s (0x%02X)", errorMsg, response[1]);
+        return false;
+    }
+
+    LOG("SOCKS5 CONNECT successful (IPv6)");
     return true;
 }
 
@@ -232,6 +285,29 @@ bool Socks5Client::ConnectThroughProxy(SOCKET sock, uint32_t targetIp, uint16_t 
 
     // Step 3: SOCKS5 CONNECT request
     if (!DoConnect(sock, targetIp, targetPort)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool Socks5Client::ConnectThroughProxyV6(SOCKET sock, const in6_addr& targetIp6, uint16_t targetPort) {
+    char ipStr[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &targetIp6, ipStr, sizeof(ipStr));
+    LOG("Connecting through SOCKS5 proxy to [%s]:%d", ipStr, ntohs(targetPort));
+
+    // Step 1: Connect to proxy server
+    if (!ConnectToProxy(sock)) {
+        return false;
+    }
+
+    // Step 2: SOCKS5 handshake
+    if (!DoHandshake(sock)) {
+        return false;
+    }
+
+    // Step 3: SOCKS5 CONNECT request (IPv6)
+    if (!DoConnectV6(sock, targetIp6, targetPort)) {
         return false;
     }
 

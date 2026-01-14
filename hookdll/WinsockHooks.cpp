@@ -120,79 +120,108 @@ bool WinsockHooks::DetachHooks() {
 }
 
 int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen) {
-    DebugLog("ProcessConnection called, socket=%llu", (unsigned long long)s);
+    DebugLog("ProcessConnection called, socket=%llu, family=%d", (unsigned long long)s, name->sa_family);
 
-    // Only handle IPv4 TCP connections
-    if (name->sa_family != AF_INET) {
-        DebugLog("Non-IPv4 connection (family=%d), passing through", name->sa_family);
-        LOG("Non-IPv4 connection, passing through");
+    // Handle IPv4 connections
+    if (name->sa_family == AF_INET) {
+        const sockaddr_in* addr = reinterpret_cast<const sockaddr_in*>(name);
+        uint32_t targetIp = addr->sin_addr.s_addr;
+        uint16_t targetPort = addr->sin_port;
+
+        // Log the connection attempt
+        DebugLog("Intercepted IPv4 connect to %d.%d.%d.%d:%d",
+            (targetIp >> 0) & 0xFF,
+            (targetIp >> 8) & 0xFF,
+            (targetIp >> 16) & 0xFF,
+            (targetIp >> 24) & 0xFF,
+            ntohs(targetPort));
+
+        // Check if proxy is enabled
+        if (!HookManager::IsProxyEnabled()) {
+            DebugLog("Proxy disabled, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        // Check if proxy is configured
+        if (!Socks5Client::IsProxyConfigured()) {
+            DebugLog("No proxy configured, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        // Skip connections to localhost
+        if ((targetIp & 0xFF) == 127) {
+            DebugLog("Localhost connection, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        DebugLog("Redirecting IPv4 through SOCKS5 proxy...");
+
+        // Set socket to blocking mode for SOCKS5 handshake
+        u_long blocking = 0;
+        ioctlsocket(s, FIONBIO, &blocking);
+
+        // Connect through SOCKS5 proxy
+        bool success = Socks5Client::ConnectThroughProxy(s, targetIp, targetPort);
+
+        if (success) {
+            LOG("SOCKS5 connection established successfully (IPv4)");
+            return 0;
+        } else {
+            LOG("SOCKS5 connection failed (IPv4)");
+            WSASetLastError(WSAECONNREFUSED);
+            return SOCKET_ERROR;
+        }
+    }
+    // Handle IPv6 connections
+    else if (name->sa_family == AF_INET6) {
+        const sockaddr_in6* addr6 = reinterpret_cast<const sockaddr_in6*>(name);
+        uint16_t targetPort = addr6->sin6_port;
+
+        char ipStr[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &addr6->sin6_addr, ipStr, sizeof(ipStr));
+
+        DebugLog("Intercepted IPv6 connect to [%s]:%d", ipStr, ntohs(targetPort));
+
+        // Check if proxy is enabled
+        if (!HookManager::IsProxyEnabled()) {
+            DebugLog("Proxy disabled, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        // Check if proxy is configured
+        if (!Socks5Client::IsProxyConfigured()) {
+            DebugLog("No proxy configured, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        // Skip connections to localhost (::1)
+        if (IN6_IS_ADDR_LOOPBACK(&addr6->sin6_addr)) {
+            DebugLog("IPv6 localhost connection, passing through");
+            return Real_connect(s, name, namelen);
+        }
+
+        DebugLog("Redirecting IPv6 through SOCKS5 proxy...");
+
+        // Set socket to blocking mode for SOCKS5 handshake
+        u_long blocking = 0;
+        ioctlsocket(s, FIONBIO, &blocking);
+
+        // Connect through SOCKS5 proxy (IPv6)
+        bool success = Socks5Client::ConnectThroughProxyV6(s, addr6->sin6_addr, targetPort);
+
+        if (success) {
+            LOG("SOCKS5 connection established successfully (IPv6)");
+            return 0;
+        } else {
+            LOG("SOCKS5 connection failed (IPv6)");
+            WSASetLastError(WSAECONNREFUSED);
+            return SOCKET_ERROR;
+        }
+    }
+    else {
+        // Other address families, pass through
+        DebugLog("Unknown address family (%d), passing through", name->sa_family);
         return Real_connect(s, name, namelen);
-    }
-
-    const sockaddr_in* addr = reinterpret_cast<const sockaddr_in*>(name);
-    uint32_t targetIp = addr->sin_addr.s_addr;
-    uint16_t targetPort = addr->sin_port;
-
-    // Log the connection attempt
-    DebugLog("Intercepted connect to %d.%d.%d.%d:%d",
-        (targetIp >> 0) & 0xFF,
-        (targetIp >> 8) & 0xFF,
-        (targetIp >> 16) & 0xFF,
-        (targetIp >> 24) & 0xFF,
-        ntohs(targetPort));
-    LOG("Intercepted connect to %d.%d.%d.%d:%d",
-        (targetIp >> 0) & 0xFF,
-        (targetIp >> 8) & 0xFF,
-        (targetIp >> 16) & 0xFF,
-        (targetIp >> 24) & 0xFF,
-        ntohs(targetPort));
-
-    // Check if proxy is enabled (can be disabled dynamically)
-    if (!HookManager::IsProxyEnabled()) {
-        DebugLog("Proxy disabled, passing through");
-        LOG("Proxy disabled, passing through");
-        return Real_connect(s, name, namelen);
-    }
-
-    // Check if proxy is configured
-    if (!Socks5Client::IsProxyConfigured()) {
-        DebugLog("No proxy configured, passing through");
-        LOG("No proxy configured, passing through");
-        return Real_connect(s, name, namelen);
-    }
-
-    // Skip connections to localhost (avoid proxy loop)
-    if ((targetIp & 0xFF) == 127) {
-        DebugLog("Localhost connection, passing through");
-        LOG("Localhost connection, passing through");
-        return Real_connect(s, name, namelen);
-    }
-
-    DebugLog("Redirecting through SOCKS5 proxy...");
-
-    // Always set socket to blocking mode for SOCKS5 handshake
-    // Get current blocking state
-    u_long originalMode = 0;
-    u_long blocking = 0;
-
-    // Set to blocking mode
-    if (ioctlsocket(s, FIONBIO, &blocking) != 0) {
-        DebugLog("Warning: Failed to set socket to blocking mode: %d", WSAGetLastError());
-    }
-
-    // Connect through SOCKS5 proxy
-    bool success = Socks5Client::ConnectThroughProxy(s, targetIp, targetPort);
-
-    // Note: We don't restore non-blocking mode here because the caller
-    // may expect a connected socket. If they need non-blocking, they'll set it.
-
-    if (success) {
-        LOG("SOCKS5 connection established successfully");
-        return 0;
-    } else {
-        LOG("SOCKS5 connection failed");
-        WSASetLastError(WSAECONNREFUSED);
-        return SOCKET_ERROR;
     }
 }
 
