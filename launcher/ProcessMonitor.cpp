@@ -495,27 +495,53 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     MonitorLog("Target process detected: %s (PID %d)", exeName.toStdString().c_str(), processId);
     emit processDetected(exeName, processId);
 
-    // Suspend, inject, resume
-    bool suspended = suspendProcess(processId);
-    if (suspended) {
-        MonitorLog("Process suspended");
-    } else {
-        MonitorLog("Failed to suspend process, injecting anyway");
+    // Retry injection with delays for processes that may not be fully initialized
+    const int maxRetries = 3;
+    const int retryDelayMs = 50;
+    QString error;
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+        // Small delay to let process initialize (except first attempt)
+        if (attempt > 1) {
+            Sleep(retryDelayMs);
+            MonitorLog("Retry attempt %d for PID %d", attempt, processId);
+        }
+
+        // Check if process still exists
+        HANDLE hCheck = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+        if (!hCheck) {
+            MonitorLog("Process %d no longer exists, skipping", processId);
+            return;
+        }
+        CloseHandle(hCheck);
+
+        // Try to suspend for injection
+        bool suspended = suspendProcess(processId);
+        if (suspended) {
+            MonitorLog("Process suspended");
+        }
+
+        error = injectIntoProcess(processId);
+
+        if (suspended) {
+            resumeProcess(processId);
+            MonitorLog("Process resumed");
+        }
+
+        if (error.isEmpty()) {
+            m_injectedProcesses.insert(processId);
+            emit injectionResult(exeName, processId, true, "Injection successful");
+            return;
+        }
+
+        // If error is not retryable, break immediately
+        if (error.contains("32-bit") || error.contains("64-bit")) {
+            break;  // Architecture mismatch, don't retry
+        }
     }
 
-    QString error = injectIntoProcess(processId);
-
-    if (suspended) {
-        resumeProcess(processId);
-        MonitorLog("Process resumed");
-    }
-
-    if (error.isEmpty()) {
-        m_injectedProcesses.insert(processId);
-        emit injectionResult(exeName, processId, true, "Injection successful");
-    } else {
-        emit injectionResult(exeName, processId, false, error);
-    }
+    // All retries failed
+    emit injectionResult(exeName, processId, false, error);
 }
 
 bool ProcessMonitor::suspendProcess(DWORD processId)
