@@ -3,6 +3,31 @@
 #include "Logger.h"
 #include <vector>
 
+// Debug log helper
+static void SocksDebugLog(const char* format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    OutputDebugStringA("[SOCKS5] ");
+    OutputDebugStringA(buffer);
+    OutputDebugStringA("\n");
+
+    char tempPath[MAX_PATH];
+    if (GetTempPathA(MAX_PATH, tempPath) > 0) {
+        char logPath[MAX_PATH];
+        snprintf(logPath, MAX_PATH, "%shookdll_debug.log", tempPath);
+        FILE* f = nullptr;
+        fopen_s(&f, logPath, "a");
+        if (f) {
+            fprintf(f, "[SOCKS5] %s\n", buffer);
+            fclose(f);
+        }
+    }
+}
+
 namespace MiniProxifier {
 
 Socks5Client::ProxyInfo Socks5Client::s_proxyInfo;
@@ -27,24 +52,63 @@ bool Socks5Client::IsProxyConfigured() {
 }
 
 bool Socks5Client::ConnectToProxy(SOCKET sock) {
-    sockaddr_in proxyAddr;
-    proxyAddr.sin_family = AF_INET;
-    proxyAddr.sin_addr.s_addr = s_proxyInfo.serverIp;
-    proxyAddr.sin_port = s_proxyInfo.serverPort;
+    SocksDebugLog("ConnectToProxy: Connecting to %d.%d.%d.%d:%d",
+        (s_proxyInfo.serverIp >> 0) & 0xFF,
+        (s_proxyInfo.serverIp >> 8) & 0xFF,
+        (s_proxyInfo.serverIp >> 16) & 0xFF,
+        (s_proxyInfo.serverIp >> 24) & 0xFF,
+        ntohs(s_proxyInfo.serverPort));
 
-    // Use Real_connect to avoid infinite recursion
-    int result = WinsockHooks::Real_connect(sock,
-        reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
+    // Check if this is an IPv6 socket by trying to get its address family
+    WSAPROTOCOL_INFOW protocolInfo;
+    int infoLen = sizeof(protocolInfo);
+    bool isIPv6Socket = false;
+
+    if (getsockopt(sock, SOL_SOCKET, SO_PROTOCOL_INFOW, (char*)&protocolInfo, &infoLen) == 0) {
+        isIPv6Socket = (protocolInfo.iAddressFamily == AF_INET6);
+    }
+
+    int result;
+
+    if (isIPv6Socket) {
+        // For IPv6 sockets, use IPv4-mapped IPv6 address
+        SocksDebugLog("ConnectToProxy: Using IPv4-mapped IPv6 address for proxy connection");
+
+        sockaddr_in6 proxyAddr6;
+        memset(&proxyAddr6, 0, sizeof(proxyAddr6));
+        proxyAddr6.sin6_family = AF_INET6;
+        proxyAddr6.sin6_port = s_proxyInfo.serverPort;
+
+        // Create IPv4-mapped IPv6 address: ::ffff:a.b.c.d
+        proxyAddr6.sin6_addr.s6_addr[10] = 0xFF;
+        proxyAddr6.sin6_addr.s6_addr[11] = 0xFF;
+        memcpy(&proxyAddr6.sin6_addr.s6_addr[12], &s_proxyInfo.serverIp, 4);
+
+        result = WinsockHooks::Real_connect(sock,
+            reinterpret_cast<sockaddr*>(&proxyAddr6), sizeof(proxyAddr6));
+    } else {
+        // For IPv4 sockets, use normal IPv4 address
+        sockaddr_in proxyAddr;
+        proxyAddr.sin_family = AF_INET;
+        proxyAddr.sin_addr.s_addr = s_proxyInfo.serverIp;
+        proxyAddr.sin_port = s_proxyInfo.serverPort;
+
+        result = WinsockHooks::Real_connect(sock,
+            reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
+    }
 
     if (result == SOCKET_ERROR) {
+        SocksDebugLog("ConnectToProxy: Failed to connect to proxy server: %d", WSAGetLastError());
         LOG("Failed to connect to proxy server: %d", WSAGetLastError());
         return false;
     }
 
+    SocksDebugLog("ConnectToProxy: Connected to proxy server successfully");
     return true;
 }
 
 bool Socks5Client::DoHandshake(SOCKET sock) {
+    SocksDebugLog("DoHandshake: Starting SOCKS5 handshake");
     // SOCKS5 greeting with auth methods:
     // VER(0x05) NMETHODS METHODS...
     // 0x00 = no auth, 0x02 = username/password
