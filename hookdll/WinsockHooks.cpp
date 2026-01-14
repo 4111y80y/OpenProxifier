@@ -128,6 +128,13 @@ int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen)
         (targetIp >> 24) & 0xFF,
         ntohs(targetPort));
 
+    // Check if proxy is enabled (can be disabled dynamically)
+    if (!HookManager::IsProxyEnabled()) {
+        DebugLog("Proxy disabled, passing through");
+        LOG("Proxy disabled, passing through");
+        return Real_connect(s, name, namelen);
+    }
+
     // Check if proxy is configured
     if (!Socks5Client::IsProxyConfigured()) {
         DebugLog("No proxy configured, passing through");

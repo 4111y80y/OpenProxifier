@@ -334,6 +334,10 @@ void ProcessMonitor::stopMonitoring()
     m_running = false;
     MonitorLog("stopMonitoring: set m_running = false");
 
+    // Disable proxy for all injected processes
+    MonitorLog("stopMonitoring: disabling proxy for all injected processes");
+    disableAllInjectedProcesses();
+
     // Cleanup WMI
     MonitorLog("stopMonitoring: calling cleanupWMI");
     cleanupWMI();
@@ -711,4 +715,51 @@ void ProcessMonitor::injectIntoExistingProcesses()
 
     CloseHandle(hSnapshot);
     MonitorLog("Finished scanning. Injected into %d existing processes.", injectedCount);
+}
+
+bool ProcessMonitor::setProxyEnabled(DWORD processId, bool enabled)
+{
+    wchar_t sharedMemName[256];
+    swprintf_s(sharedMemName, SHARED_MEM_NAME_FORMAT, processId);
+
+    HANDLE hMapFile = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, sharedMemName);
+    if (!hMapFile) {
+        MonitorLog("setProxyEnabled: Failed to open shared memory for PID %d", processId);
+        return false;
+    }
+
+    ProxyConfig* pConfig = static_cast<ProxyConfig*>(
+        MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE));
+
+    if (!pConfig) {
+        MonitorLog("setProxyEnabled: Failed to map shared memory for PID %d", processId);
+        CloseHandle(hMapFile);
+        return false;
+    }
+
+    pConfig->enabled = enabled ? 1 : 0;
+    MonitorLog("setProxyEnabled: Set enabled=%d for PID %d", pConfig->enabled, processId);
+
+    UnmapViewOfFile(pConfig);
+    CloseHandle(hMapFile);
+    return true;
+}
+
+void ProcessMonitor::disableAllInjectedProcesses()
+{
+    MonitorLog("disableAllInjectedProcesses: Disabling %d processes", m_injectedProcesses.size());
+
+    for (DWORD pid : m_injectedProcesses) {
+        // Check if process is still running
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (hProcess) {
+            DWORD exitCode;
+            if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE) {
+                setProxyEnabled(pid, false);
+            }
+            CloseHandle(hProcess);
+        }
+    }
+
+    MonitorLog("disableAllInjectedProcesses: Done");
 }

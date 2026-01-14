@@ -9,14 +9,14 @@
 // Proxy configuration structure shared between launcher and hookdll
 struct ProxyConfig {
     static constexpr uint32_t MAGIC = 0x50524F58;  // "PROX"
-    static constexpr uint32_t VERSION = 1;
+    static constexpr uint32_t VERSION = 2;  // Bumped for enabled field
 
     uint32_t magic;          // Magic number for validation
     uint32_t version;        // Structure version
     uint32_t proxyIp;        // Proxy server IP (network byte order)
     uint16_t proxyPort;      // Proxy server port (network byte order)
     uint8_t  authRequired;   // Authentication required flag
-    uint8_t  reserved;       // Reserved for alignment
+    uint8_t  enabled;        // Proxy enabled flag (1=enabled, 0=disabled)
     char     username[64];   // Username (if auth required)
     char     password[64];   // Password (if auth required)
     uint32_t flags;          // Additional flags
@@ -25,6 +25,7 @@ struct ProxyConfig {
         memset(this, 0, sizeof(ProxyConfig));
         magic = MAGIC;
         version = VERSION;
+        enabled = 1;  // Enabled by default
     }
 
     bool isValid() const {

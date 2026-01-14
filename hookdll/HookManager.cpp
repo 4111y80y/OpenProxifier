@@ -42,9 +42,20 @@ namespace MiniProxifier {
 
 bool HookManager::s_initialized = false;
 ProxyConfig HookManager::s_cachedConfig;
+HANDLE HookManager::s_hMapFile = NULL;
+ProxyConfig* HookManager::s_pLiveConfig = nullptr;
 
 const ProxyConfig& HookManager::GetCachedConfig() {
     return s_cachedConfig;
+}
+
+bool HookManager::IsProxyEnabled() {
+    // Check live config from shared memory
+    if (s_pLiveConfig && s_pLiveConfig->isValid()) {
+        return s_pLiveConfig->enabled != 0;
+    }
+    // Fallback to cached config
+    return s_cachedConfig.enabled != 0;
 }
 
 bool HookManager::CreateSharedMemoryForProcess(DWORD processId) {
@@ -166,9 +177,9 @@ bool HookManager::LoadProxyConfig() {
     DEBUG_LOG("LoadProxyConfig: Looking for shared memory: %ls", sharedMemName);
     LOG("LoadProxyConfig: Looking for shared memory with PID %d", pid);
 
-    // Open shared memory
-    HANDLE hMapFile = OpenFileMappingW(FILE_MAP_READ, FALSE, sharedMemName);
-    if (!hMapFile) {
+    // Open shared memory with read/write access for live updates
+    s_hMapFile = OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, sharedMemName);
+    if (!s_hMapFile) {
         DWORD err = GetLastError();
         DEBUG_LOG("LoadProxyConfig: OpenFileMappingW failed, error=%d", err);
         LOG("Failed to open shared memory: %s (error: %d)",
@@ -178,59 +189,62 @@ bool HookManager::LoadProxyConfig() {
 
     DEBUG_LOG("LoadProxyConfig: Shared memory opened successfully");
 
-    // Map view
-    ProxyConfig* pConfig = static_cast<ProxyConfig*>(
-        MapViewOfFile(hMapFile, FILE_MAP_READ, 0, 0, SHARED_MEM_SIZE));
-    if (!pConfig) {
+    // Map view and keep it open for live access
+    s_pLiveConfig = static_cast<ProxyConfig*>(
+        MapViewOfFile(s_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, SHARED_MEM_SIZE));
+    if (!s_pLiveConfig) {
         DEBUG_LOG("LoadProxyConfig: MapViewOfFile failed");
         LOG("Failed to map view of shared memory");
-        CloseHandle(hMapFile);
+        CloseHandle(s_hMapFile);
+        s_hMapFile = NULL;
         return false;
     }
 
-    DEBUG_LOG("LoadProxyConfig: Config magic=0x%08X, version=%d", pConfig->magic, pConfig->version);
+    DEBUG_LOG("LoadProxyConfig: Config magic=0x%08X, version=%d, enabled=%d",
+        s_pLiveConfig->magic, s_pLiveConfig->version, s_pLiveConfig->enabled);
 
-    // Validate and copy config
-    if (!pConfig->isValid()) {
+    // Validate config
+    if (!s_pLiveConfig->isValid()) {
         DEBUG_LOG("LoadProxyConfig: Invalid config!");
         LOG("Invalid proxy config (magic: 0x%08X, version: %d)",
-            pConfig->magic, pConfig->version);
-        UnmapViewOfFile(pConfig);
-        CloseHandle(hMapFile);
+            s_pLiveConfig->magic, s_pLiveConfig->version);
+        UnmapViewOfFile(s_pLiveConfig);
+        s_pLiveConfig = nullptr;
+        CloseHandle(s_hMapFile);
+        s_hMapFile = NULL;
         return false;
     }
 
     // Cache the config for child process injection
-    memcpy(&s_cachedConfig, pConfig, sizeof(ProxyConfig));
+    memcpy(&s_cachedConfig, s_pLiveConfig, sizeof(ProxyConfig));
     DEBUG_LOG("LoadProxyConfig: Config cached for child process injection");
 
     // Set proxy in Socks5Client
     Socks5Client::ProxyInfo proxy;
-    proxy.serverIp = pConfig->proxyIp;
-    proxy.serverPort = pConfig->proxyPort;
-    proxy.authRequired = pConfig->authRequired != 0;
+    proxy.serverIp = s_pLiveConfig->proxyIp;
+    proxy.serverPort = s_pLiveConfig->proxyPort;
+    proxy.authRequired = s_pLiveConfig->authRequired != 0;
     if (proxy.authRequired) {
-        proxy.username = pConfig->username;
-        proxy.password = pConfig->password;
+        proxy.username = s_pLiveConfig->username;
+        proxy.password = s_pLiveConfig->password;
     }
     Socks5Client::SetProxy(proxy);
 
     DEBUG_LOG("LoadProxyConfig: Proxy set to %d.%d.%d.%d:%d",
-        (pConfig->proxyIp >> 0) & 0xFF,
-        (pConfig->proxyIp >> 8) & 0xFF,
-        (pConfig->proxyIp >> 16) & 0xFF,
-        (pConfig->proxyIp >> 24) & 0xFF,
-        ntohs(pConfig->proxyPort));
+        (s_pLiveConfig->proxyIp >> 0) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 8) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 16) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 24) & 0xFF,
+        ntohs(s_pLiveConfig->proxyPort));
 
     LOG("Proxy config loaded: %d.%d.%d.%d:%d",
-        (pConfig->proxyIp >> 0) & 0xFF,
-        (pConfig->proxyIp >> 8) & 0xFF,
-        (pConfig->proxyIp >> 16) & 0xFF,
-        (pConfig->proxyIp >> 24) & 0xFF,
-        ntohs(pConfig->proxyPort));
+        (s_pLiveConfig->proxyIp >> 0) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 8) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 16) & 0xFF,
+        (s_pLiveConfig->proxyIp >> 24) & 0xFF,
+        ntohs(s_pLiveConfig->proxyPort));
 
-    UnmapViewOfFile(pConfig);
-    CloseHandle(hMapFile);
+    // Note: Keep s_hMapFile and s_pLiveConfig open for live enabled flag checking
     return true;
 }
 

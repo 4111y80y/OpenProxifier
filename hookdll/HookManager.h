@@ -20,6 +20,9 @@ public:
     // Create shared memory for a child process
     static bool CreateSharedMemoryForProcess(DWORD processId);
 
+    // Check if proxy is currently enabled (reads from shared memory)
+    static bool IsProxyEnabled();
+
 private:
     static bool InstallHooks();
     static bool RemoveHooks();
@@ -27,6 +30,8 @@ private:
 
     static bool s_initialized;
     static ProxyConfig s_cachedConfig;
+    static HANDLE s_hMapFile;
+    static ProxyConfig* s_pLiveConfig;  // Live pointer to shared memory
 };
 
 } // namespace MiniProxifier

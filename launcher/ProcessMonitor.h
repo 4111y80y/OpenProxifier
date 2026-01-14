@@ -63,6 +63,8 @@ private slots:
 private:
     bool injectIntoProcess(DWORD processId);
     bool createProxySharedMemory(DWORD processId);
+    bool setProxyEnabled(DWORD processId, bool enabled);  // Enable/disable proxy for a process
+    void disableAllInjectedProcesses();  // Disable proxy for all injected processes
     bool suspendProcess(DWORD processId);
     bool resumeProcess(DWORD processId);
     bool initWMI();
