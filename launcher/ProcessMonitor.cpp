@@ -551,6 +551,36 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
         }
     }
 
+    // All retries failed - but check if DLL was already injected by parent process hook
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+    if (hProcess) {
+        // Check if our DLL is already loaded
+        HMODULE hMods[1024];
+        DWORD cbNeeded;
+        bool alreadyLoaded = false;
+        if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+            int moduleCount = cbNeeded / sizeof(HMODULE);
+            for (int i = 0; i < moduleCount; i++) {
+                wchar_t szModName[MAX_PATH];
+                if (GetModuleFileNameExW(hProcess, hMods[i], szModName, MAX_PATH)) {
+                    QString modName = QString::fromWCharArray(szModName);
+                    if (modName.toLower().contains("openproxifierhook")) {
+                        alreadyLoaded = true;
+                        break;
+                    }
+                }
+            }
+        }
+        CloseHandle(hProcess);
+
+        if (alreadyLoaded) {
+            MonitorLog("VirtualAllocEx failed but DLL already loaded (injected by parent), treating as success");
+            m_injectedProcesses.insert(processId);
+            emit injectionResult(exeName, processId, true, "Already injected by parent");
+            return;
+        }
+    }
+
     // All retries failed
     emit injectionResult(exeName, processId, false, error);
 }
