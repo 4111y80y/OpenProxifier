@@ -20,14 +20,14 @@ public:
     ~TestAppWindow();
 
 private slots:
-    void onCheckIpClicked();
+    void onToggleAutoCheck();
     void onNetworkReply(QNetworkReply* reply);
     void onAutoCheck();
     void onLanguageChanged(int index);
 
 private:
     QLabel* m_ipLabel;
-    QPushButton* m_checkButton;
+    QPushButton* m_toggleButton;
     QTextEdit* m_logEdit;
     QNetworkAccessManager* m_networkManager;
     QTimer* m_autoCheckTimer;
@@ -36,10 +36,12 @@ private:
     QGroupBox* m_logGroup;
     bool m_requestPending;
     bool m_isChinese;
+    bool m_autoCheckEnabled;
 
     void appendLog(const QString& message);
     void doCheckIp();
     void retranslateUi();
+    void updateToggleButton();
     QString tr_log(const QString& en, const QString& zh);
 };
 

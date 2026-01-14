@@ -14,6 +14,7 @@ TestAppWindow::TestAppWindow(QWidget *parent)
     , m_autoCheckTimer(new QTimer(this))
     , m_requestPending(false)
     , m_isChinese(false)
+    , m_autoCheckEnabled(true)
 {
     QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
     setMinimumSize(420, 350);
@@ -33,14 +34,9 @@ TestAppWindow::TestAppWindow(QWidget *parent)
     m_ipLabel->setStyleSheet("font-size: 18px; font-weight: bold; padding: 20px;");
     ipLayout->addWidget(m_ipLabel);
 
-    m_checkButton = new QPushButton("Check Now", this);
-    m_checkButton->setMinimumHeight(40);
-    m_checkButton->setStyleSheet(
-        "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; }"
-        "QPushButton:hover { background-color: #45a049; }"
-        "QPushButton:disabled { background-color: #cccccc; }"
-    );
-    ipLayout->addWidget(m_checkButton);
+    m_toggleButton = new QPushButton("Stop Auto-Check", this);
+    m_toggleButton->setMinimumHeight(40);
+    ipLayout->addWidget(m_toggleButton);
     mainLayout->addWidget(m_ipGroup);
 
     m_logGroup = new QGroupBox("Log", this);
@@ -69,17 +65,20 @@ TestAppWindow::TestAppWindow(QWidget *parent)
         m_isChinese = false;
     }
 
-    connect(m_checkButton, &QPushButton::clicked, this, &TestAppWindow::onCheckIpClicked);
+    connect(m_toggleButton, &QPushButton::clicked, this, &TestAppWindow::onToggleAutoCheck);
     connect(m_networkManager, &QNetworkAccessManager::finished, this, &TestAppWindow::onNetworkReply);
     connect(m_autoCheckTimer, &QTimer::timeout, this, &TestAppWindow::onAutoCheck);
     connect(m_languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TestAppWindow::onLanguageChanged);
 
     retranslateUi();
+    updateToggleButton();
+    
     appendLog(tr_log("ProxyTestApp started. Auto-checking IP every 5 seconds.",
                      QStringLiteral("ProxyTestApp 已启动。每5秒自动检查IP。")));
     appendLog(tr_log("If proxied via OpenProxifier, you will see VPN IP.",
                      QStringLiteral("如果通过 OpenProxifier 代理，您将看到 VPN IP。")));
+    
     m_autoCheckTimer->start(5000);
     doCheckIp();
 }
@@ -90,20 +89,36 @@ void TestAppWindow::onLanguageChanged(int index)
 {
     m_isChinese = (index == 1);
     retranslateUi();
+    updateToggleButton();
 }
 
 void TestAppWindow::retranslateUi()
 {
     if (m_isChinese) {
-        setWindowTitle(QStringLiteral("ProxyTestApp - IP 检查器 (自动: 5秒)"));
+        setWindowTitle(QStringLiteral("ProxyTestApp - IP 检查器"));
         m_ipGroup->setTitle(QStringLiteral("当前 IP 地址"));
         m_logGroup->setTitle(QStringLiteral("日志"));
-        if (!m_requestPending) m_checkButton->setText(QStringLiteral("立即检查"));
     } else {
-        setWindowTitle("ProxyTestApp - IP Checker (Auto: 5s)");
+        setWindowTitle("ProxyTestApp - IP Checker");
         m_ipGroup->setTitle("Current IP Address");
         m_logGroup->setTitle("Log");
-        if (!m_requestPending) m_checkButton->setText("Check Now");
+    }
+}
+
+void TestAppWindow::updateToggleButton()
+{
+    if (m_autoCheckEnabled) {
+        m_toggleButton->setText(tr_log("Stop Auto-Check", QStringLiteral("停止自动检查")));
+        m_toggleButton->setStyleSheet(
+            "QPushButton { background-color: #f44336; color: white; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background-color: #da190b; }"
+        );
+    } else {
+        m_toggleButton->setText(tr_log("Start Auto-Check", QStringLiteral("开始自动检查")));
+        m_toggleButton->setStyleSheet(
+            "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; }"
+            "QPushButton:hover { background-color: #45a049; }"
+        );
     }
 }
 
@@ -114,19 +129,31 @@ QString TestAppWindow::tr_log(const QString& en, const QString& zh)
 
 void TestAppWindow::onAutoCheck()
 {
-    if (!m_requestPending) doCheckIp();
+    if (!m_requestPending && m_autoCheckEnabled) {
+        doCheckIp();
+    }
 }
 
-void TestAppWindow::onCheckIpClicked()
+void TestAppWindow::onToggleAutoCheck()
 {
-    if (!m_requestPending) doCheckIp();
+    m_autoCheckEnabled = !m_autoCheckEnabled;
+    updateToggleButton();
+    
+    if (m_autoCheckEnabled) {
+        appendLog(tr_log("Auto-check enabled (every 5 seconds)",
+                         QStringLiteral("自动检查已开启 (每5秒)")));
+        if (!m_requestPending) {
+            doCheckIp();
+        }
+    } else {
+        appendLog(tr_log("Auto-check disabled",
+                         QStringLiteral("自动检查已关闭")));
+    }
 }
 
 void TestAppWindow::doCheckIp()
 {
     m_requestPending = true;
-    m_checkButton->setEnabled(false);
-    m_checkButton->setText(tr_log("Checking...", QStringLiteral("检查中...")));
     appendLog(tr_log("Checking IP...", QStringLiteral("正在检查 IP...")));
 
     QNetworkRequest request(QUrl("http://httpbin.org/ip"));
@@ -139,8 +166,6 @@ void TestAppWindow::doCheckIp()
 void TestAppWindow::onNetworkReply(QNetworkReply* reply)
 {
     m_requestPending = false;
-    m_checkButton->setEnabled(true);
-    m_checkButton->setText(tr_log("Check Now", QStringLiteral("立即检查")));
 
     if (reply->error() == QNetworkReply::NoError) {
         QByteArray data = reply->readAll();
