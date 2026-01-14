@@ -109,6 +109,11 @@ bool Socks5Client::ConnectToProxy(SOCKET sock) {
 
 bool Socks5Client::DoHandshake(SOCKET sock) {
     SocksDebugLog("DoHandshake: Starting SOCKS5 handshake");
+    
+    // Set socket timeout for recv (5 seconds)
+    DWORD timeout = 5000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+    
     // SOCKS5 greeting with auth methods:
     // VER(0x05) NMETHODS METHODS...
     // 0x00 = no auth, 0x02 = username/password

@@ -231,7 +231,7 @@ int WinsockHooks::ProcessConnection(SOCKET s, const sockaddr* name, int namelen)
         }
 
         // For pure IPv6 addresses, pass through directly
-        // (Most proxies don't support IPv6 targets well)
+        // Most SOCKS5 proxies (including v2rayN) don't support IPv6 targets
         DebugLog("Pure IPv6 address, passing through (proxy doesn't support IPv6 targets)");
         return Real_connect(s, name, namelen);
     }
