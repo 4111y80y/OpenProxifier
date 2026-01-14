@@ -358,9 +358,68 @@ void ProcessMonitor::stopMonitoring()
     emit monitoringStopped();
 }
 
-void ProcessMonitor::addTargetProcess(const QString& exeName)
+void ProcessMonitor::addTargetProcess(const QString& exeName, bool injectNow)
 {
-    m_targetProcesses.insert(exeName.toLower());
+    QString lowerName = exeName.toLower();
+    m_targetProcesses.insert(lowerName);
+
+    // If monitoring is active and injectNow is true, inject into running instances
+    if (injectNow && m_running) {
+        injectIntoRunningProcess(exeName);
+    }
+}
+
+void ProcessMonitor::injectIntoRunningProcess(const QString& exeName)
+{
+    QString targetName = exeName.toLower();
+    MonitorLog("Scanning for running instances of: %s", targetName.toStdString().c_str());
+
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        MonitorLog("Failed to create process snapshot");
+        return;
+    }
+
+    PROCESSENTRY32W pe32;
+    pe32.dwSize = sizeof(pe32);
+
+    if (Process32FirstW(hSnapshot, &pe32)) {
+        do {
+            QString processName = QString::fromWCharArray(pe32.szExeFile).toLower();
+            DWORD pid = pe32.th32ProcessID;
+
+            if (processName != targetName) {
+                continue;
+            }
+
+            if (m_injectedProcesses.contains(pid)) {
+                MonitorLog("Process %s (PID %lu) already injected, skipping",
+                          processName.toStdString().c_str(), pid);
+                continue;
+            }
+
+            if (pid == 0 || pid == 4) {
+                continue;
+            }
+
+            MonitorLog("Found running instance: %s (PID %lu)", processName.toStdString().c_str(), pid);
+            emit processDetected(exeName, pid);
+
+            if (createProxySharedMemory(pid)) {
+                if (injectIntoProcess(pid)) {
+                    m_injectedProcesses.insert(pid);
+                    emit injectionResult(exeName, pid, true, "");
+                    MonitorLog("Successfully injected into %s (PID %lu)", processName.toStdString().c_str(), pid);
+                } else {
+                    emit injectionResult(exeName, pid, false, "DLL injection failed");
+                }
+            } else {
+                emit injectionResult(exeName, pid, false, "Failed to create shared memory");
+            }
+        } while (Process32NextW(hSnapshot, &pe32));
+    }
+
+    CloseHandle(hSnapshot);
 }
 
 void ProcessMonitor::removeTargetProcess(const QString& exeName)

@@ -354,8 +354,16 @@ void MainWindow::onAddExeClicked()
 
     ui->exeListWidget->addItem(exeName);
     ui->exeNameEdit->clear();
-    appendLog(tr_log(QString("Added target: %1").arg(exeName),
-                     QStringLiteral("已添加目标: %1").arg(exeName)));
+
+    // If monitoring is active, add to monitor and inject immediately
+    if (m_monitor->isMonitoring()) {
+        m_monitor->addTargetProcess(exeName, true);  // true = inject into running instances now
+        appendLog(tr_log(QString("Added target: %1 (scanning for running instances...)").arg(exeName),
+                         QStringLiteral("已添加目标: %1 (正在扫描运行中的实例...)").arg(exeName)));
+    } else {
+        appendLog(tr_log(QString("Added target: %1").arg(exeName),
+                         QStringLiteral("已添加目标: %1").arg(exeName)));
+    }
 }
 
 void MainWindow::onRemoveExeClicked()
@@ -440,11 +448,11 @@ void MainWindow::onMonitoringStarted()
     ui->startMonitorButton->setEnabled(false);
     ui->stopMonitorButton->setEnabled(true);
     ui->proxyGroup->setEnabled(false);
-    // Don't disable targetGroup entirely - stopMonitorButton is inside it
-    ui->exeNameEdit->setEnabled(false);
-    ui->addExeButton->setEnabled(false);
+    // Keep add functionality enabled during monitoring
+    ui->exeNameEdit->setEnabled(true);
+    ui->addExeButton->setEnabled(true);
     ui->removeExeButton->setEnabled(false);
-    ui->exeListWidget->setEnabled(false);
+    ui->exeListWidget->setEnabled(true);  // Allow viewing the list
     ui->autoStartCheckBox->setEnabled(false);
     updateStatus(tr_log("Monitoring...", QStringLiteral("监控中...")));
     appendLog(tr_log("[INFO] Monitoring started - waiting for target processes...",

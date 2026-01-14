@@ -29,7 +29,10 @@ public:
     void stopMonitoring();
 
     // Add an exe name to monitor (case insensitive)
-    void addTargetProcess(const QString& exeName);
+    void addTargetProcess(const QString& exeName, bool injectNow = false);
+
+    // Inject into all running instances of a specific target process
+    void injectIntoRunningProcess(const QString& exeName);
 
     // Remove an exe from the monitor list
     void removeTargetProcess(const QString& exeName);
