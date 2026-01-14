@@ -497,12 +497,13 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     emit processDetected(exeName, processId);
 
     // Retry injection with delays for processes that may not be fully initialized
-    const int maxRetries = 5;
-    const int retryDelayMs = 150;
+    // Keep retries minimal to avoid blocking WMI event loop
+    const int maxRetries = 2;
+    const int retryDelayMs = 50;
     QString error;
 
-    // Initial delay to let process initialize
-    Sleep(100);
+    // Small initial delay to let process initialize
+    Sleep(30);
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
         // Additional delay for retries
@@ -519,18 +520,8 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
         }
         CloseHandle(hCheck);
 
-        // Try to suspend for injection
-        bool suspended = suspendProcess(processId);
-        if (suspended) {
-            MonitorLog("Process suspended");
-        }
-
+        // Don't suspend - it can cause hangs
         error = injectIntoProcess(processId);
-
-        if (suspended) {
-            resumeProcess(processId);
-            MonitorLog("Process resumed");
-        }
 
         if (error.isEmpty()) {
             m_injectedProcesses.insert(processId);
@@ -552,8 +543,8 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     }
 
     // All retries failed - but check if DLL was already injected by parent process hook
-    // Wait a bit for the DLL to finish loading if parent process is injecting
-    Sleep(200);
+    // Quick check - don't wait too long to avoid blocking WMI
+    Sleep(50);
 
     // Check if process still exists
     HANDLE hCheckProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
