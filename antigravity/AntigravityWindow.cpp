@@ -5,11 +5,14 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkProxy>
 
 AntigravityWindow::AntigravityWindow(QWidget *parent)
     : QMainWindow(parent)
     , m_networkManager(new QNetworkAccessManager(this))
 {
+    // Disable system proxy - only use proxy when injected by MiniProxifier
+    QNetworkProxy::setApplicationProxy(QNetworkProxy::NoProxy);
     setWindowTitle("Antigravity - IP Checker");
     setMinimumSize(400, 300);
 
