@@ -571,6 +571,7 @@ bool ProcessMonitor::createProxySharedMemory(DWORD processId)
     pConfig->proxyIp = m_proxyIp;
     pConfig->proxyPort = m_proxyPort;
     pConfig->authRequired = m_authRequired ? 1 : 0;
+    pConfig->enabled = 1;  // Enable proxy by default
 
     if (m_authRequired) {
         strncpy_s(pConfig->username, m_username.toStdString().c_str(), sizeof(pConfig->username) - 1);
