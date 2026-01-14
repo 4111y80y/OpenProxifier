@@ -497,12 +497,15 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     emit processDetected(exeName, processId);
 
     // Retry injection with delays for processes that may not be fully initialized
-    const int maxRetries = 3;
-    const int retryDelayMs = 50;
+    const int maxRetries = 5;
+    const int retryDelayMs = 150;
     QString error;
 
+    // Initial delay to let process initialize
+    Sleep(100);
+
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
-        // Small delay to let process initialize (except first attempt)
+        // Additional delay for retries
         if (attempt > 1) {
             Sleep(retryDelayMs);
             MonitorLog("Retry attempt %d for PID %d", attempt, processId);
@@ -538,6 +541,13 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
         // If error is not retryable, break immediately
         if (error.contains("32-bit") || error.contains("64-bit")) {
             break;  // Architecture mismatch, don't retry
+        }
+
+        // Check if it's ACCESS_DENIED - worth retrying
+        if (!error.contains("error 5")) {
+            // Other errors may not be worth retrying
+            MonitorLog("Non-retryable error: %s", error.toStdString().c_str());
+            break;
         }
     }
 
