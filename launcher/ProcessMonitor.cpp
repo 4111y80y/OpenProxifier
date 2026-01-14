@@ -549,17 +549,21 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
     // Check if process still exists
     HANDLE hCheckProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
     if (!hCheckProcess) {
-        MonitorLog("Process %d no longer exists after retries", processId);
-        emit injectionResult(exeName, processId, false, "Process exited before injection");
+        // Process exited - likely already injected by parent's CreateProcess hook
+        MonitorLog("Process %d no longer exists after retries (likely injected by parent)", processId);
+        m_injectedProcesses.insert(processId);
+        emit injectionResult(exeName, processId, true, "Handled by parent process");
         return;
     }
 
     // Check if process has exited
     DWORD exitCode = 0;
     if (GetExitCodeProcess(hCheckProcess, &exitCode) && exitCode != STILL_ACTIVE) {
-        MonitorLog("Process %d has exited (exit code %d)", processId, exitCode);
+        // Process completed - likely already injected by parent's CreateProcess hook
+        MonitorLog("Process %d has exited (exit code %d) - likely injected by parent", processId, exitCode);
         CloseHandle(hCheckProcess);
-        emit injectionResult(exeName, processId, false, "Process exited before injection");
+        m_injectedProcesses.insert(processId);
+        emit injectionResult(exeName, processId, true, "Handled by parent process");
         return;
     }
     CloseHandle(hCheckProcess);
