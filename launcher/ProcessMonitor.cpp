@@ -11,6 +11,29 @@
 
 #pragma comment(lib, "wbemuuid.lib")
 
+// Enable debug privilege for process injection
+static bool EnableDebugPrivilege() {
+    HANDLE hToken;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) {
+        return false;
+    }
+
+    TOKEN_PRIVILEGES tp;
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    if (!LookupPrivilegeValueW(NULL, SE_DEBUG_NAME, &tp.Privileges[0].Luid)) {
+        CloseHandle(hToken);
+        return false;
+    }
+
+    BOOL result = AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
+    DWORD error = GetLastError();
+    CloseHandle(hToken);
+
+    return result && (error == ERROR_SUCCESS);
+}
+
 // Debug log function for process monitor
 static void MonitorLog(const char* format, ...) {
     char buffer[1024];
@@ -268,6 +291,13 @@ void ProcessMonitor::startMonitoring()
         MonitorLog("No target processes configured");
         emit error("No target processes configured");
         return;
+    }
+
+    // Enable debug privilege for process injection
+    if (EnableDebugPrivilege()) {
+        MonitorLog("Debug privilege enabled successfully");
+    } else {
+        MonitorLog("Warning: Failed to enable debug privilege, injection may fail for some processes");
     }
 
     // First, inject into any already-running target processes
