@@ -1,3 +1,4 @@
+// -*- coding: utf-8 -*-
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 #include "ProcessMonitor.h"
@@ -24,7 +25,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Setup language selector
     ui->languageCombo->addItem("English", "en");
-    ui->languageCombo->addItem(QString::fromUtf8("\344\270\255\346\226\207"), "zh");  // UTF-8 encoded Chinese chars
+    ui->languageCombo->addItem(QStringLiteral("中文"), "zh");
 
     // Detect system language
     QString sysLang = QLocale::system().name();
@@ -83,7 +84,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_monitor->setDllPath(dllPath);
         appendLog(QString("DLL: %1").arg(dllPath));
     } else {
-        appendLog(tr_log("[ERROR] Hook DLL not found!", "[ERROR] Hook DLL not found!"));
+        appendLog("[ERROR] Hook DLL not found!");
     }
 
     // Load settings (includes server history and target list)
@@ -93,17 +94,17 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->exeListWidget->count() == 0) {
         ui->exeListWidget->addItem("Antigravity.exe");
         appendLog(tr_log("Added default target: Antigravity.exe",
-                         QString::fromUtf8("\345\267\262\346\267\273\345\212\240\351\273\230\350\256\244\347\233\256\346\240\207: Antigravity.exe")));
+                         QStringLiteral("已添加默认目标: Antigravity.exe")));
     }
 
     // Apply initial language
     retranslateUi();
 
     // Initial connection status
-    ui->connectionStatusLabel->setText(tr_log("Not tested", QString::fromUtf8("\346\234\252\346\265\213\350\257\225")));
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测试")));
     ui->connectionStatusLabel->setStyleSheet("color: gray;");
 
-    updateStatus(tr_log("Ready", QString::fromUtf8("\345\260\261\347\273\252")));
+    updateStatus(tr_log("Ready", QStringLiteral("就绪")));
 
     // Auto-test connection on startup, then auto-start if enabled
     QTimer::singleShot(500, this, [this]() {
@@ -189,7 +190,7 @@ void MainWindow::loadServerHistory()
 {
     ui->serverHistoryCombo->clear();
     ui->serverHistoryCombo->addItem(tr_log("-- Select saved server --",
-                                           QString::fromUtf8("-- \351\200\211\346\213\251\345\267\262\344\277\235\345\255\230\347\232\204\346\234\215\345\212\241\345\231\250 --")));
+                                           QStringLiteral("-- 选择已保存的服务器 --")));
 
     int count = m_settings->beginReadArray("serverHistory");
     for (int i = 0; i < count; ++i) {
@@ -246,7 +247,7 @@ void MainWindow::onServerComboChanged(int index)
     ui->passwordEdit->setText(data["pass"].toString());
 
     appendLog(tr_log(QString("Loaded server: %1").arg(ui->serverHistoryCombo->currentText()),
-                     QString::fromUtf8("\345\267\262\345\212\240\350\275\275\346\234\215\345\212\241\345\231\250: %1").arg(ui->serverHistoryCombo->currentText())));
+                     QStringLiteral("已加载服务器: %1").arg(ui->serverHistoryCombo->currentText())));
 }
 
 void MainWindow::onSaveServerClicked()
@@ -254,9 +255,9 @@ void MainWindow::onSaveServerClicked()
     QString host = ui->proxyHostEdit->text().trimmed();
     if (host.isEmpty()) {
         QMessageBox::warning(this,
-            tr_log("Error", QString::fromUtf8("\351\224\231\350\257\257")),
+            tr_log("Error", QStringLiteral("错误")),
             tr_log("Please enter a server address first.",
-                   QString::fromUtf8("\350\257\267\345\205\210\350\276\223\345\205\245\346\234\215\345\212\241\345\231\250\345\234\260\345\235\200\343\200\202")));
+                   QStringLiteral("请先输入服务器地址。")));
         return;
     }
 
@@ -276,7 +277,7 @@ void MainWindow::onSaveServerClicked()
             ui->serverHistoryCombo->setItemData(i, data);
 
             appendLog(tr_log(QString("Updated server: %1").arg(displayName),
-                             QString::fromUtf8("\345\267\262\346\233\264\346\226\260\346\234\215\345\212\241\345\231\250: %1").arg(displayName)));
+                             QStringLiteral("已更新服务器: %1").arg(displayName)));
             return;
         }
     }
@@ -293,7 +294,7 @@ void MainWindow::onSaveServerClicked()
     ui->serverHistoryCombo->setCurrentIndex(ui->serverHistoryCombo->count() - 1);
 
     appendLog(tr_log(QString("Saved server: %1").arg(displayName),
-                     QString::fromUtf8("\345\267\262\344\277\235\345\255\230\346\234\215\345\212\241\345\231\250: %1").arg(displayName)));
+                     QStringLiteral("已保存服务器: %1").arg(displayName)));
 }
 
 void MainWindow::onDeleteServerClicked()
@@ -301,9 +302,9 @@ void MainWindow::onDeleteServerClicked()
     int index = ui->serverHistoryCombo->currentIndex();
     if (index <= 0) {
         QMessageBox::warning(this,
-            tr_log("Error", QString::fromUtf8("\351\224\231\350\257\257")),
+            tr_log("Error", QStringLiteral("错误")),
             tr_log("Please select a saved server to delete.",
-                   QString::fromUtf8("\350\257\267\351\200\211\346\213\251\350\246\201\345\210\240\351\231\244\347\232\204\346\234\215\345\212\241\345\231\250\343\200\202")));
+                   QStringLiteral("请选择要删除的服务器。")));
         return;
     }
 
@@ -311,7 +312,7 @@ void MainWindow::onDeleteServerClicked()
     ui->serverHistoryCombo->removeItem(index);
 
     appendLog(tr_log(QString("Deleted server: %1").arg(name),
-                     QString::fromUtf8("\345\267\262\345\210\240\351\231\244\346\234\215\345\212\241\345\231\250: %1").arg(name)));
+                     QStringLiteral("已删除服务器: %1").arg(name)));
 }
 
 void MainWindow::onAddExeClicked()
@@ -330,9 +331,9 @@ void MainWindow::onAddExeClicked()
     for (int i = 0; i < ui->exeListWidget->count(); ++i) {
         if (ui->exeListWidget->item(i)->text().toLower() == exeName.toLower()) {
             QMessageBox::warning(this,
-                tr_log("Duplicate", QString::fromUtf8("\351\207\215\345\244\215")),
+                tr_log("Duplicate", QStringLiteral("重复")),
                 tr_log("This executable is already in the list.",
-                       QString::fromUtf8("\350\257\245\347\250\213\345\272\217\345\267\262\345\234\250\345\210\227\350\241\250\344\270\255\343\200\202")));
+                       QStringLiteral("该程序已在列表中。")));
             return;
         }
     }
@@ -340,7 +341,7 @@ void MainWindow::onAddExeClicked()
     ui->exeListWidget->addItem(exeName);
     ui->exeNameEdit->clear();
     appendLog(tr_log(QString("Added target: %1").arg(exeName),
-                     QString::fromUtf8("\345\267\262\346\267\273\345\212\240\347\233\256\346\240\207: %1").arg(exeName)));
+                     QStringLiteral("已添加目标: %1").arg(exeName)));
 }
 
 void MainWindow::onRemoveExeClicked()
@@ -350,7 +351,7 @@ void MainWindow::onRemoveExeClicked()
         QString exeName = item->text();
         delete ui->exeListWidget->takeItem(ui->exeListWidget->row(item));
         appendLog(tr_log(QString("Removed target: %1").arg(exeName),
-                         QString::fromUtf8("\345\267\262\345\210\240\351\231\244\347\233\256\346\240\207: %1").arg(exeName)));
+                         QStringLiteral("已删除目标: %1").arg(exeName)));
     }
 }
 
@@ -369,17 +370,17 @@ void MainWindow::onStartMonitorClicked()
 
     if (ui->exeListWidget->count() == 0) {
         QMessageBox::warning(this,
-            tr_log("No Targets", QString::fromUtf8("\346\227\240\347\233\256\346\240\207")),
+            tr_log("No Targets", QStringLiteral("无目标")),
             tr_log("Please add at least one target executable to monitor.",
-                   QString::fromUtf8("\350\257\267\350\207\263\345\260\221\346\267\273\345\212\240\344\270\200\344\270\252\347\233\256\346\240\207\347\250\213\345\272\217\343\200\202")));
+                   QStringLiteral("请至少添加一个目标程序。")));
         return;
     }
 
     QString dllPath = getHookDllPath();
     if (dllPath.isEmpty()) {
         QMessageBox::critical(this,
-            tr_log("Error", QString::fromUtf8("\351\224\231\350\257\257")),
-            tr_log("Hook DLL not found!", QString::fromUtf8("Hook DLL \346\234\252\346\211\276\345\210\260!")));
+            tr_log("Error", QStringLiteral("错误")),
+            tr_log("Hook DLL not found!", QStringLiteral("Hook DLL 未找到!")));
         return;
     }
 
@@ -406,17 +407,17 @@ void MainWindow::onStopMonitorClicked()
 void MainWindow::onProcessDetected(const QString& exeName, unsigned long processId)
 {
     appendLog(tr_log(QString("[DETECTED] %1 (PID: %2)").arg(exeName).arg(processId),
-                     QString::fromUtf8("[\346\243\200\346\265\213\345\210\260] %1 (PID: %2)").arg(exeName).arg(processId)));
+                     QStringLiteral("[检测到] %1 (PID: %2)").arg(exeName).arg(processId)));
 }
 
 void MainWindow::onInjectionResult(const QString& exeName, unsigned long processId, bool success, const QString& message)
 {
     if (success) {
         appendLog(tr_log(QString("[SUCCESS] Injected into %1 (PID: %2)").arg(exeName).arg(processId),
-                         QString::fromUtf8("[\346\210\220\345\212\237] \345\267\262\346\263\250\345\205\245 %1 (PID: %2)").arg(exeName).arg(processId)));
+                         QStringLiteral("[成功] 已注入 %1 (PID: %2)").arg(exeName).arg(processId)));
     } else {
         appendLog(tr_log(QString("[FAILED] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message),
-                         QString::fromUtf8("[\345\244\261\350\264\245] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message)));
+                         QStringLiteral("[失败] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message)));
     }
 }
 
@@ -431,9 +432,9 @@ void MainWindow::onMonitoringStarted()
     ui->removeExeButton->setEnabled(false);
     ui->exeListWidget->setEnabled(false);
     ui->autoStartCheckBox->setEnabled(false);
-    updateStatus(tr_log("Monitoring...", QString::fromUtf8("\347\233\221\346\216\247\344\270\255...")));
+    updateStatus(tr_log("Monitoring...", QStringLiteral("监控中...")));
     appendLog(tr_log("[INFO] Monitoring started - waiting for target processes...",
-                     QString::fromUtf8("[\344\277\241\346\201\257] \347\233\221\346\216\247\345\267\262\345\220\257\345\212\250 - \347\255\211\345\276\205\347\233\256\346\240\207\350\277\233\347\250\213...")));
+                     QStringLiteral("[信息] 监控已启动 - 等待目标进程...")));
 }
 
 void MainWindow::onMonitoringStopped()
@@ -447,22 +448,22 @@ void MainWindow::onMonitoringStopped()
     ui->removeExeButton->setEnabled(true);
     ui->exeListWidget->setEnabled(true);
     ui->autoStartCheckBox->setEnabled(true);
-    updateStatus(tr_log("Ready", QString::fromUtf8("\345\260\261\347\273\252")));
+    updateStatus(tr_log("Ready", QStringLiteral("就绪")));
     appendLog(tr_log("[INFO] Monitoring stopped",
-                     QString::fromUtf8("[\344\277\241\346\201\257] \347\233\221\346\216\247\345\267\262\345\201\234\346\255\242")));
+                     QStringLiteral("[信息] 监控已停止")));
 }
 
 void MainWindow::onMonitorError(const QString& message)
 {
     appendLog(QString("[ERROR] %1").arg(message));
     QMessageBox::critical(this,
-        tr_log("Error", QString::fromUtf8("\351\224\231\350\257\257")),
+        tr_log("Error", QStringLiteral("错误")),
         message);
 }
 
 void MainWindow::updateStatus(const QString& message)
 {
-    ui->statusLabel->setText(tr_log("Status: ", QString::fromUtf8("\347\212\266\346\200\201: ")) + message);
+    ui->statusLabel->setText(tr_log("Status: ", QStringLiteral("状态: ")) + message);
 }
 
 void MainWindow::appendLog(const QString& message)
@@ -480,9 +481,9 @@ bool MainWindow::validateProxySettings()
 {
     if (ui->proxyHostEdit->text().isEmpty()) {
         QMessageBox::warning(this,
-            tr_log("Validation Error", QString::fromUtf8("\351\252\214\350\257\201\351\224\231\350\257\257")),
+            tr_log("Validation Error", QStringLiteral("验证错误")),
             tr_log("Please enter proxy server address.",
-                   QString::fromUtf8("\350\257\267\350\276\223\345\205\245\344\273\243\347\220\206\346\234\215\345\212\241\345\231\250\345\234\260\345\235\200\343\200\202")));
+                   QStringLiteral("请输入代理服务器地址。")));
         return false;
     }
 
@@ -490,18 +491,18 @@ bool MainWindow::validateProxySettings()
     struct in_addr addr;
     if (inet_pton(AF_INET, ui->proxyHostEdit->text().toStdString().c_str(), &addr) != 1) {
         QMessageBox::warning(this,
-            tr_log("Validation Error", QString::fromUtf8("\351\252\214\350\257\201\351\224\231\350\257\257")),
+            tr_log("Validation Error", QStringLiteral("验证错误")),
             tr_log("Invalid proxy IP address.",
-                   QString::fromUtf8("\346\227\240\346\225\210\347\232\204\344\273\243\347\220\206IP\345\234\260\345\235\200\343\200\202")));
+                   QStringLiteral("无效的代理IP地址。")));
         return false;
     }
 
     if (ui->authCheckBox->isChecked()) {
         if (ui->usernameEdit->text().isEmpty()) {
             QMessageBox::warning(this,
-                tr_log("Validation Error", QString::fromUtf8("\351\252\214\350\257\201\351\224\231\350\257\257")),
+                tr_log("Validation Error", QStringLiteral("验证错误")),
                 tr_log("Please enter username for authentication.",
-                       QString::fromUtf8("\350\257\267\350\276\223\345\205\245\350\256\244\350\257\201\347\224\250\346\210\267\345\220\215\343\200\202")));
+                       QStringLiteral("请输入认证用户名。")));
             return false;
         }
     }
@@ -550,7 +551,7 @@ void MainWindow::onLanguageChanged(int index)
     m_isChinese = (index == 1);
     retranslateUi();
     appendLog(tr_log("Language changed to English",
-                     QString::fromUtf8("\350\257\255\350\250\200\345\267\262\345\210\207\346\215\242\344\270\272\344\270\255\346\226\207")));
+                     QStringLiteral("语言已切换为中文")));
 }
 
 void MainWindow::retranslateUi()
@@ -558,36 +559,36 @@ void MainWindow::retranslateUi()
     if (m_isChinese) {
         // Chinese translations
         setWindowTitle("OpenProxifier");
-        ui->proxyGroup->setTitle(QString::fromUtf8("SOCKS5 \344\273\243\347\220\206\350\256\276\347\275\256"));
-        ui->historyLabel->setText(QString::fromUtf8("\345\216\206\345\217\262:"));
-        ui->saveServerButton->setText(QString::fromUtf8("\344\277\235\345\255\230"));
-        ui->deleteServerButton->setText(QString::fromUtf8("\345\210\240\351\231\244"));
-        ui->hostLabel->setText(QString::fromUtf8("\346\234\215\345\212\241\345\231\250:"));
-        ui->portLabel->setText(QString::fromUtf8("\347\253\257\345\217\243:"));
-        ui->authCheckBox->setText(QString::fromUtf8("\351\234\200\350\246\201\350\272\253\344\273\275\351\252\214\350\257\201"));
-        ui->userLabel->setText(QString::fromUtf8("\347\224\250\346\210\267\345\220\215:"));
-        ui->passLabel->setText(QString::fromUtf8("\345\257\206\347\240\201:"));
-        ui->targetGroup->setTitle(QString::fromUtf8("\347\233\256\346\240\207\350\277\233\347\250\213 (\350\207\252\345\212\250\347\233\221\346\216\247)"));
-        ui->exeNameEdit->setPlaceholderText(QString::fromUtf8("\350\276\223\345\205\245\347\250\213\345\272\217\345\220\215 (\344\276\213\345\246\202: Antigravity.exe)"));
-        ui->addExeButton->setText(QString::fromUtf8("\346\267\273\345\212\240"));
-        ui->removeExeButton->setText(QString::fromUtf8("\345\210\240\351\231\244"));
-        ui->autoStartCheckBox->setText(QString::fromUtf8("\345\220\257\345\212\250\346\227\266\350\207\252\345\212\250\345\274\200\345\247\213\347\233\221\346\216\247"));
-        ui->startMonitorButton->setText(QString::fromUtf8("\345\274\200\345\247\213\347\233\221\346\216\247"));
-        ui->stopMonitorButton->setText(QString::fromUtf8("\345\201\234\346\255\242\347\233\221\346\216\247"));
-        ui->startMonitorButton->setToolTip(QString::fromUtf8("\347\233\221\346\216\247\347\263\273\347\273\237\344\270\255\347\232\204\347\233\256\346\240\207\350\277\233\347\250\213\345\271\266\350\207\252\345\212\250\346\263\250\345\205\245"));
-        ui->logGroup->setTitle(QString::fromUtf8("\346\264\273\345\212\250\346\227\245\345\277\227"));
-        ui->testServerButton->setText(QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245"));
+        ui->proxyGroup->setTitle(QStringLiteral("SOCKS5 代理设置"));
+        ui->historyLabel->setText(QStringLiteral("历史:"));
+        ui->saveServerButton->setText(QStringLiteral("保存"));
+        ui->deleteServerButton->setText(QStringLiteral("删除"));
+        ui->hostLabel->setText(QStringLiteral("服务器:"));
+        ui->portLabel->setText(QStringLiteral("端口:"));
+        ui->authCheckBox->setText(QStringLiteral("需要身份验证"));
+        ui->userLabel->setText(QStringLiteral("用户名:"));
+        ui->passLabel->setText(QStringLiteral("密码:"));
+        ui->targetGroup->setTitle(QStringLiteral("目标进程 (自动监控)"));
+        ui->exeNameEdit->setPlaceholderText(QStringLiteral("输入程序名 (例如: Antigravity.exe)"));
+        ui->addExeButton->setText(QStringLiteral("添加"));
+        ui->removeExeButton->setText(QStringLiteral("删除"));
+        ui->autoStartCheckBox->setText(QStringLiteral("启动时自动开始监控"));
+        ui->startMonitorButton->setText(QStringLiteral("开始监控"));
+        ui->stopMonitorButton->setText(QStringLiteral("停止监控"));
+        ui->startMonitorButton->setToolTip(QStringLiteral("监控系统中的目标进程并自动注入"));
+        ui->logGroup->setTitle(QStringLiteral("活动日志"));
+        ui->testServerButton->setText(QStringLiteral("测试连接"));
 
         // Update status if not monitoring
         if (!m_monitor->isMonitoring()) {
-            updateStatus(QString::fromUtf8("\345\260\261\347\273\252"));
+            updateStatus(QStringLiteral("就绪"));
         } else {
-            updateStatus(QString::fromUtf8("\347\233\221\346\216\247\344\270\255..."));
+            updateStatus(QStringLiteral("监控中..."));
         }
 
         // Update server history combo placeholder
         if (ui->serverHistoryCombo->count() > 0) {
-            ui->serverHistoryCombo->setItemText(0, QString::fromUtf8("-- \351\200\211\346\213\251\345\267\262\344\277\235\345\255\230\347\232\204\346\234\215\345\212\241\345\231\250 --"));
+            ui->serverHistoryCombo->setItemText(0, QStringLiteral("-- 选择已保存的服务器 --"));
         }
     } else {
         // English translations
@@ -631,7 +632,7 @@ void MainWindow::onTestServerClicked()
     QString host = ui->proxyHostEdit->text().trimmed();
     if (host.isEmpty()) {
         ui->connectionStatusLabel->setText(tr_log("Please enter server address",
-                                                   QString::fromUtf8("\350\257\267\350\276\223\345\205\245\346\234\215\345\212\241\345\231\250\345\234\260\345\235\200")));
+                                                   QStringLiteral("请输入服务器地址")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
@@ -642,7 +643,7 @@ void MainWindow::onTestServerClicked()
     struct in_addr addr;
     if (inet_pton(AF_INET, host.toStdString().c_str(), &addr) != 1) {
         ui->connectionStatusLabel->setText(tr_log("Invalid IP address",
-                                                   QString::fromUtf8("\346\227\240\346\225\210\347\232\204IP\345\234\260\345\235\200")));
+                                                   QStringLiteral("无效的IP地址")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
@@ -656,7 +657,7 @@ void MainWindow::onTestServerClicked()
 
     if (authRequired && username.isEmpty()) {
         ui->connectionStatusLabel->setText(tr_log("Username required",
-                                                   QString::fromUtf8("\351\234\200\350\246\201\347\224\250\346\210\267\345\220\215")));
+                                                   QStringLiteral("需要用户名")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
@@ -666,13 +667,13 @@ void MainWindow::onTestServerClicked()
     int port = ui->proxyPortSpin->value();
 
     // Show testing status
-    ui->connectionStatusLabel->setText(tr_log("Testing...", QString::fromUtf8("\346\265\213\350\257\225\344\270\255...")));
+    ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试中...")));
     ui->connectionStatusLabel->setStyleSheet("color: blue;");
     ui->testServerButton->setEnabled(false);
     QCoreApplication::processEvents();
 
     appendLog(tr_log(QString("Testing connection to %1:%2%3...").arg(host).arg(port).arg(authRequired ? " (with auth)" : ""),
-                     QString::fromUtf8("\346\265\213\350\257\225\350\277\236\346\216\245 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QString::fromUtf8(" (\345\270\246\350\256\244\350\257\201)") : "")));
+                     QStringLiteral("测试连接 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (带认证)") : "")));
 
     // Initialize Winsock if needed
     WSADATA wsaData;
@@ -682,13 +683,13 @@ void MainWindow::onTestServerClicked()
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET) {
         ui->connectionStatusLabel->setText(tr_log("Socket error",
-                                                   QString::fromUtf8("\345\245\227\346\216\245\345\255\227\351\224\231\350\257\257")));
+                                                   QStringLiteral("套接字错误")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Failed to create socket",
-                         QString::fromUtf8("[ERROR] \345\210\233\345\273\272\345\245\227\346\216\245\345\255\227\345\244\261\350\264\245")));
+                         QStringLiteral("[错误] 创建套接字失败")));
         return;
     }
 
@@ -707,13 +708,13 @@ void MainWindow::onTestServerClicked()
     if (result == SOCKET_ERROR) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Connection failed",
-                                                   QString::fromUtf8("\350\277\236\346\216\245\345\244\261\350\264\245")));
+                                                   QStringLiteral("连接失败")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log(QString("[ERROR] Cannot connect to %1:%2").arg(host).arg(port),
-                         QString::fromUtf8("[ERROR] \346\227\240\346\263\225\350\277\236\346\216\245 %1:%2").arg(host).arg(port)));
+                         QStringLiteral("[错误] 无法连接 %1:%2").arg(host).arg(port)));
         return;
     }
 
@@ -737,13 +738,13 @@ void MainWindow::onTestServerClicked()
     if (sent != greetingLen) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Handshake failed",
-                                                   QString::fromUtf8("\346\217\241\346\211\213\345\244\261\350\264\245")));
+                                                   QStringLiteral("握手失败")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] SOCKS5 handshake send failed",
-                         QString::fromUtf8("[ERROR] SOCKS5 \346\217\241\346\211\213\345\217\221\351\200\201\345\244\261\350\264\245")));
+                         QStringLiteral("[错误] SOCKS5 握手发送失败")));
         return;
     }
 
@@ -754,13 +755,13 @@ void MainWindow::onTestServerClicked()
     if (received != 2 || response[0] != 0x05) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Not a SOCKS5 server",
-                                                   QString::fromUtf8("\351\235\236SOCKS5\346\234\215\345\212\241\345\231\250")));
+                                                   QStringLiteral("非SOCKS5服务器")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Server is not a valid SOCKS5 proxy",
-                         QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\344\270\215\346\230\257\346\234\211\346\225\210\347\232\204SOCKS5\344\273\243\347\220\206")));
+                         QStringLiteral("[错误] 服务器不是有效的SOCKS5代理")));
         return;
     }
 
@@ -768,13 +769,13 @@ void MainWindow::onTestServerClicked()
     if (response[1] == 0xFF) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("No acceptable auth",
-                                                   QString::fromUtf8("\346\227\240\345\217\257\347\224\250\350\256\244\350\257\201\346\226\271\345\274\217")));
+                                                   QStringLiteral("无可用认证方式")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Server rejected all authentication methods",
-                         QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\346\213\222\347\273\235\344\272\206\346\211\200\346\234\211\350\256\244\350\257\201\346\226\271\345\274\217")));
+                         QStringLiteral("[错误] 服务器拒绝了所有认证方式")));
         return;
     }
 
@@ -783,13 +784,13 @@ void MainWindow::onTestServerClicked()
         if (!authRequired || username.isEmpty()) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth required by server",
-                                                       QString::fromUtf8("\346\234\215\345\212\241\345\231\250\351\234\200\350\246\201\350\256\244\350\257\201")));
+                                                       QStringLiteral("服务器需要认证")));
             ui->connectionStatusLabel->setStyleSheet("color: orange;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
             ui->testServerButton->setEnabled(true);
             appendLog(tr_log("[ERROR] Server requires authentication but none provided",
-                             QString::fromUtf8("[ERROR] \346\234\215\345\212\241\345\231\250\351\234\200\350\246\201\350\256\244\350\257\201\344\275\206\346\234\252\346\217\220\344\276\233")));
+                             QStringLiteral("[错误] 服务器需要认证但未提供")));
             return;
         }
 
@@ -800,7 +801,7 @@ void MainWindow::onTestServerClicked()
         if (user.length() > 255 || pass.length() > 255) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Credentials too long",
-                                                       QString::fromUtf8("\345\207\255\350\257\201\350\277\207\351\225\277")));
+                                                       QStringLiteral("凭证过长")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
@@ -820,7 +821,7 @@ void MainWindow::onTestServerClicked()
         if (sent != static_cast<int>(authReq.size())) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth send failed",
-                                                       QString::fromUtf8("\350\256\244\350\257\201\345\217\221\351\200\201\345\244\261\350\264\245")));
+                                                       QStringLiteral("认证发送失败")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
@@ -834,7 +835,7 @@ void MainWindow::onTestServerClicked()
         if (received != 2 || authResponse[0] != 0x01) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth response error",
-                                                       QString::fromUtf8("\350\256\244\350\257\201\345\223\215\345\272\224\351\224\231\350\257\257")));
+                                                       QStringLiteral("认证响应错误")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
@@ -845,28 +846,28 @@ void MainWindow::onTestServerClicked()
         if (authResponse[1] != 0x00) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth failed (wrong password)",
-                                                       QString::fromUtf8("\350\256\244\350\257\201\345\244\261\350\264\245 (\345\257\206\347\240\201\351\224\231\350\257\257)")));
+                                                       QStringLiteral("认证失败 (密码错误)")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
             ui->testServerButton->setEnabled(true);
             appendLog(tr_log("[ERROR] Authentication failed - wrong username or password",
-                             QString::fromUtf8("[ERROR] \350\256\244\350\257\201\345\244\261\350\264\245 - \347\224\250\346\210\267\345\220\215\346\210\226\345\257\206\347\240\201\351\224\231\350\257\257")));
+                             QStringLiteral("[错误] 认证失败 - 用户名或密码错误")));
             return;
         }
 
         appendLog(tr_log("[SUCCESS] Authentication successful",
-                         QString::fromUtf8("[\346\210\220\345\212\237] \350\256\244\350\257\201\346\210\220\345\212\237")));
+                         QStringLiteral("[成功] 认证成功")));
     } else if (response[1] != 0x00) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Unsupported auth method",
-                                                   QString::fromUtf8("\344\270\215\346\224\257\346\214\201\347\232\204\350\256\244\350\257\201\346\226\271\345\274\217")));
+                                                   QStringLiteral("不支持的认证方式")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log(QString("[ERROR] Unsupported auth method: 0x%1").arg(response[1], 2, 16, QChar('0')),
-                         QString::fromUtf8("[ERROR] \344\270\215\346\224\257\346\214\201\347\232\204\350\256\244\350\257\201\346\226\271\345\274\217: 0x%1").arg(response[1], 2, 16, QChar('0'))));
+                         QStringLiteral("[错误] 不支持的认证方式: 0x%1").arg(response[1], 2, 16, QChar('0'))));
         return;
     }
 
@@ -874,15 +875,15 @@ void MainWindow::onTestServerClicked()
 
     // Success!
     QString statusText = authRequired ?
-        tr_log("Connected (auth OK)", QString::fromUtf8("\345\267\262\350\277\236\346\216\245 (\350\256\244\350\257\201\346\210\220\345\212\237)")) :
-        tr_log("Connected", QString::fromUtf8("\345\267\262\350\277\236\346\216\245"));
+        tr_log("Connected (auth OK)", QStringLiteral("已连接 (认证成功)")) :
+        tr_log("Connected", QStringLiteral("已连接"));
     ui->connectionStatusLabel->setText(statusText);
     ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
     m_serverConnected = true;
     ui->startMonitorButton->setEnabled(true);
     ui->testServerButton->setEnabled(true);
     appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(host).arg(port).arg(authRequired ? " (authenticated)" : ""),
-                     QString::fromUtf8("[\346\210\220\345\212\237] SOCKS5 \346\234\215\345\212\241\345\231\250 %1:%2 \345\217\257\350\276\276%3").arg(host).arg(port).arg(authRequired ? QString::fromUtf8(" (\345\267\262\350\256\244\350\257\201)") : "")));
+                     QStringLiteral("[成功] SOCKS5 服务器 %1:%2 可达%3").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (已认证)") : "")));
 }
 
 void MainWindow::onProxySettingsChanged()
@@ -890,6 +891,6 @@ void MainWindow::onProxySettingsChanged()
     // When proxy settings change, mark as untested and disable monitoring
     m_serverConnected = false;
     ui->startMonitorButton->setEnabled(false);
-    ui->connectionStatusLabel->setText(tr_log("Not tested", QString::fromUtf8("\346\234\252\346\265\213\350\257\225")));
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测试")));
     ui->connectionStatusLabel->setStyleSheet("color: gray;");
 }
