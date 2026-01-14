@@ -381,6 +381,12 @@ void MainWindow::onRemoveExeClicked()
     if (item) {
         QString exeName = item->text();
         delete ui->exeListWidget->takeItem(ui->exeListWidget->row(item));
+
+        // If monitoring is active, remove from monitor too
+        if (m_monitor->isMonitoring()) {
+            m_monitor->removeTargetProcess(exeName);
+        }
+
         appendLog(tr_log(QString("Removed target: %1").arg(exeName),
                          QStringLiteral("已删除目标: %1").arg(exeName)));
     }
@@ -457,11 +463,11 @@ void MainWindow::onMonitoringStarted()
     ui->startMonitorButton->setEnabled(false);
     ui->stopMonitorButton->setEnabled(true);
     ui->proxyGroup->setEnabled(false);
-    // Keep add functionality enabled during monitoring
+    // Keep add/remove functionality enabled during monitoring
     ui->exeNameEdit->setEnabled(true);
     ui->addExeButton->setEnabled(true);
-    ui->removeExeButton->setEnabled(false);
-    ui->exeListWidget->setEnabled(true);  // Allow viewing the list
+    ui->removeExeButton->setEnabled(true);
+    ui->exeListWidget->setEnabled(true);
     ui->autoStartCheckBox->setEnabled(false);
     updateStatus(tr_log("Monitoring...", QStringLiteral("监控中...")));
     appendLog(tr_log("[INFO] Monitoring started - waiting for target processes...",
