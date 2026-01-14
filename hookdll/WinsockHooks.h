@@ -3,6 +3,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <shellapi.h>
 
 namespace MiniProxifier {
 
@@ -33,6 +34,10 @@ public:
         LPCSTR lpCurrentDirectory, LPSTARTUPINFOA lpStartupInfo,
         LPPROCESS_INFORMATION lpProcessInformation);
 
+    // ShellExecuteEx hooks for child process injection
+    static BOOL (WINAPI* Real_ShellExecuteExW)(SHELLEXECUTEINFOW* pExecInfo);
+    static BOOL (WINAPI* Real_ShellExecuteExA)(SHELLEXECUTEINFOA* pExecInfo);
+
 private:
     // Hooked function implementations
     static int WINAPI Hooked_connect(SOCKET s, const sockaddr* name, int namelen);
@@ -53,11 +58,18 @@ private:
         LPCSTR lpCurrentDirectory, LPSTARTUPINFOA lpStartupInfo,
         LPPROCESS_INFORMATION lpProcessInformation);
 
+    // ShellExecuteEx hooks
+    static BOOL WINAPI Hooked_ShellExecuteExW(SHELLEXECUTEINFOW* pExecInfo);
+    static BOOL WINAPI Hooked_ShellExecuteExA(SHELLEXECUTEINFOA* pExecInfo);
+
     // Helper to process connection through SOCKS5
     static int ProcessConnection(SOCKET s, const sockaddr* name, int namelen);
 
     // Helper to inject DLL into child process
     static bool InjectIntoProcess(HANDLE hProcess, HANDLE hThread, DWORD dwCreationFlags);
+
+    // Helper to inject DLL into process by PID (for ShellExecuteEx)
+    static bool InjectIntoProcessByPid(DWORD processId);
 };
 
 } // namespace MiniProxifier

@@ -46,6 +46,10 @@ BOOL (WINAPI* WinsockHooks::Real_CreateProcessA)(
     LPCSTR, LPSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES,
     BOOL, DWORD, LPVOID, LPCSTR, LPSTARTUPINFOA, LPPROCESS_INFORMATION) = CreateProcessA;
 
+// ShellExecuteEx original pointers
+BOOL (WINAPI* WinsockHooks::Real_ShellExecuteExW)(SHELLEXECUTEINFOW*) = ShellExecuteExW;
+BOOL (WINAPI* WinsockHooks::Real_ShellExecuteExA)(SHELLEXECUTEINFOA*) = ShellExecuteExA;
+
 // Get the path of the current DLL
 static std::wstring GetCurrentDllPath() {
     wchar_t path[MAX_PATH];
@@ -86,7 +90,20 @@ bool WinsockHooks::AttachHooks() {
         return false;
     }
 
-    DebugLog("All hooks attached (connect, WSAConnect, CreateProcessW, CreateProcessA)");
+    // Hook ShellExecuteEx for child process injection
+    error = DetourAttach(&(PVOID&)Real_ShellExecuteExW, Hooked_ShellExecuteExW);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach ShellExecuteExW hook: %ld", error);
+        return false;
+    }
+
+    error = DetourAttach(&(PVOID&)Real_ShellExecuteExA, Hooked_ShellExecuteExA);
+    if (error != NO_ERROR) {
+        LOG("Failed to attach ShellExecuteExA hook: %ld", error);
+        return false;
+    }
+
+    DebugLog("All hooks attached (connect, WSAConnect, CreateProcess, ShellExecuteEx)");
     LOG("Winsock hooks attached successfully");
     return true;
 }
@@ -96,6 +113,8 @@ bool WinsockHooks::DetachHooks() {
     DetourDetach(&(PVOID&)Real_WSAConnect, Hooked_WSAConnect);
     DetourDetach(&(PVOID&)Real_CreateProcessW, Hooked_CreateProcessW);
     DetourDetach(&(PVOID&)Real_CreateProcessA, Hooked_CreateProcessA);
+    DetourDetach(&(PVOID&)Real_ShellExecuteExW, Hooked_ShellExecuteExW);
+    DetourDetach(&(PVOID&)Real_ShellExecuteExA, Hooked_ShellExecuteExA);
     LOG("Winsock hooks detached");
     return true;
 }
@@ -242,6 +261,75 @@ bool WinsockHooks::InjectIntoProcess(HANDLE hProcess, HANDLE hThread, DWORD dwCr
     return true;
 }
 
+// Inject DLL into process by PID (for ShellExecuteEx)
+bool WinsockHooks::InjectIntoProcessByPid(DWORD processId) {
+    DebugLog("InjectIntoProcessByPid: PID=%d", processId);
+
+    // Wait a bit for process to initialize
+    Sleep(50);
+
+    HANDLE hProcess = OpenProcess(
+        PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
+        FALSE, processId);
+
+    if (!hProcess) {
+        DebugLog("InjectIntoProcessByPid: OpenProcess failed: %d", GetLastError());
+        return false;
+    }
+
+    // Create shared memory for child process
+    HookManager::CreateSharedMemoryForProcess(processId);
+
+    std::wstring dllPath = GetCurrentDllPath();
+    if (dllPath.empty()) {
+        DebugLog("InjectIntoProcessByPid: Failed to get DLL path");
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    SIZE_T pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
+
+    LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, pathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remoteMem) {
+        DebugLog("InjectIntoProcessByPid: VirtualAllocEx failed: %d", GetLastError());
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    SIZE_T bytesWritten;
+    if (!WriteProcessMemory(hProcess, remoteMem, dllPath.c_str(), pathSize, &bytesWritten)) {
+        DebugLog("InjectIntoProcessByPid: WriteProcessMemory failed: %d", GetLastError());
+        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+    LPTHREAD_START_ROUTINE loadLibraryAddr = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryW");
+    if (!loadLibraryAddr) {
+        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    HANDLE hRemoteThread = CreateRemoteThread(hProcess, NULL, 0, loadLibraryAddr, remoteMem, 0, NULL);
+    if (!hRemoteThread) {
+        DebugLog("InjectIntoProcessByPid: CreateRemoteThread failed: %d", GetLastError());
+        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    WaitForSingleObject(hRemoteThread, 5000);
+    CloseHandle(hRemoteThread);
+    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+    CloseHandle(hProcess);
+
+    DebugLog("InjectIntoProcessByPid: DLL injected successfully");
+    return true;
+}
+
 // Hooked CreateProcessW
 BOOL WINAPI WinsockHooks::Hooked_CreateProcessW(
     LPCWSTR lpApplicationName, LPWSTR lpCommandLine,
@@ -322,4 +410,65 @@ BOOL WINAPI WinsockHooks::Hooked_CreateProcessA(
     return result;
 }
 
+// Hooked ShellExecuteExW
+BOOL WINAPI WinsockHooks::Hooked_ShellExecuteExW(SHELLEXECUTEINFOW* pExecInfo) {
+    DebugLog("Hooked_ShellExecuteExW called");
+
+    // Request process handle so we can inject
+    ULONG originalMask = pExecInfo->fMask;
+    pExecInfo->fMask |= SEE_MASK_NOCLOSEPROCESS;
+
+    BOOL result = Real_ShellExecuteExW(pExecInfo);
+
+    if (result && pExecInfo->hProcess) {
+        DWORD pid = GetProcessId(pExecInfo->hProcess);
+        if (pid != 0) {
+            DebugLog("ShellExecuteExW child process: PID=%d", pid);
+            InjectIntoProcessByPid(pid);
+        }
+
+        // Close handle if we added the flag
+        if (!(originalMask & SEE_MASK_NOCLOSEPROCESS)) {
+            CloseHandle(pExecInfo->hProcess);
+            pExecInfo->hProcess = NULL;
+        }
+    }
+
+    // Restore original mask
+    pExecInfo->fMask = originalMask;
+
+    return result;
+}
+
+// Hooked ShellExecuteExA
+BOOL WINAPI WinsockHooks::Hooked_ShellExecuteExA(SHELLEXECUTEINFOA* pExecInfo) {
+    DebugLog("Hooked_ShellExecuteExA called");
+
+    // Request process handle so we can inject
+    ULONG originalMask = pExecInfo->fMask;
+    pExecInfo->fMask |= SEE_MASK_NOCLOSEPROCESS;
+
+    BOOL result = Real_ShellExecuteExA(pExecInfo);
+
+    if (result && pExecInfo->hProcess) {
+        DWORD pid = GetProcessId(pExecInfo->hProcess);
+        if (pid != 0) {
+            DebugLog("ShellExecuteExA child process: PID=%d", pid);
+            InjectIntoProcessByPid(pid);
+        }
+
+        // Close handle if we added the flag
+        if (!(originalMask & SEE_MASK_NOCLOSEPROCESS)) {
+            CloseHandle(pExecInfo->hProcess);
+            pExecInfo->hProcess = NULL;
+        }
+    }
+
+    // Restore original mask
+    pExecInfo->fMask = originalMask;
+
+    return result;
+}
+
 } // namespace MiniProxifier
+

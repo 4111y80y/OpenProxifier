@@ -37,3 +37,4 @@ private:
 } // namespace MiniProxifier
 
 #endif // HOOK_MANAGER_H
+

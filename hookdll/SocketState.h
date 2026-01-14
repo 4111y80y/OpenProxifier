@@ -79,3 +79,4 @@ inline std::mutex SocketStateManager::s_mutex;
 } // namespace MiniProxifier
 
 #endif // SOCKET_STATE_H
+

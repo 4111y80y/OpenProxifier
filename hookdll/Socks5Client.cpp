@@ -239,3 +239,4 @@ bool Socks5Client::ConnectThroughProxy(SOCKET sock, uint32_t targetIp, uint16_t 
 }
 
 } // namespace MiniProxifier
+

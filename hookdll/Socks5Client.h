@@ -53,3 +53,4 @@ private:
 } // namespace MiniProxifier
 
 #endif // SOCKS5_CLIENT_H
+

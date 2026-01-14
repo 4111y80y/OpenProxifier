@@ -249,3 +249,4 @@ bool HookManager::LoadProxyConfig() {
 }
 
 } // namespace MiniProxifier
+
