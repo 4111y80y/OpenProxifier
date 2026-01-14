@@ -2,6 +2,8 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QSettings>
+#include <QStringList>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -36,17 +38,30 @@ private slots:
     // Language
     void onLanguageChanged(int index);
 
+    // Server history
+    void onServerComboChanged(int index);
+    void onSaveServerClicked();
+    void onDeleteServerClicked();
+
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;
     bool m_isChinese;
+    QSettings* m_settings;
 
     void updateStatus(const QString& message);
     void appendLog(const QString& message);
+    QString tr_log(const QString& en, const QString& zh);  // Translate log messages
     bool validateProxySettings();
     QString getHookDllPath();
     void updateProxyConfig();
     void retranslateUi();
+
+    // Settings save/load
+    void loadSettings();
+    void saveSettings();
+    void loadServerHistory();
+    void saveServerHistory();
 };
 
 #endif // MAINWINDOW_H

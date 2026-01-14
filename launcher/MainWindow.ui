@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>550</width>
-    <height>500</height>
+    <height>550</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -28,13 +28,57 @@
       </property>
       <layout class="QFormLayout" name="formLayout">
        <item row="0" column="0">
+        <widget class="QLabel" name="historyLabel">
+         <property name="text">
+          <string>History:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <layout class="QHBoxLayout" name="historyLayout">
+         <item>
+          <widget class="QComboBox" name="serverHistoryCombo">
+           <property name="minimumWidth">
+            <number>200</number>
+           </property>
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+             <horstretch>1</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="saveServerButton">
+           <property name="text">
+            <string>Save</string>
+           </property>
+           <property name="maximumWidth">
+            <number>60</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="deleteServerButton">
+           <property name="text">
+            <string>Delete</string>
+           </property>
+           <property name="maximumWidth">
+            <number>60</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="1" column="0">
         <widget class="QLabel" name="hostLabel">
          <property name="text">
           <string>Server:</string>
          </property>
         </widget>
        </item>
-       <item row="0" column="1">
+       <item row="1" column="1">
         <layout class="QHBoxLayout" name="hostLayout">
          <item>
           <widget class="QLineEdit" name="proxyHostEdit">
@@ -65,31 +109,31 @@
          </item>
         </layout>
        </item>
-       <item row="1" column="0" colspan="2">
+       <item row="2" column="0" colspan="2">
         <widget class="QCheckBox" name="authCheckBox">
          <property name="text">
           <string>Require Authentication</string>
          </property>
         </widget>
        </item>
-       <item row="2" column="0">
+       <item row="3" column="0">
         <widget class="QLabel" name="userLabel">
          <property name="text">
           <string>Username:</string>
          </property>
         </widget>
        </item>
-       <item row="2" column="1">
+       <item row="3" column="1">
         <widget class="QLineEdit" name="usernameEdit"/>
        </item>
-       <item row="3" column="0">
+       <item row="4" column="0">
         <widget class="QLabel" name="passLabel">
          <property name="text">
           <string>Password:</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="1">
+       <item row="4" column="1">
         <widget class="QLineEdit" name="passwordEdit">
          <property name="echoMode">
           <enum>QLineEdit::Password</enum>
@@ -110,7 +154,7 @@
          <item>
           <widget class="QLineEdit" name="exeNameEdit">
            <property name="placeholderText">
-            <string>Enter exe name (e.g., curl.exe)</string>
+            <string>Enter exe name (e.g., Antigravity.exe)</string>
            </property>
           </widget>
          </item>
@@ -134,6 +178,13 @@
         <widget class="QListWidget" name="exeListWidget">
          <property name="minimumHeight">
           <number>80</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="autoStartCheckBox">
+         <property name="text">
+          <string>Auto-start monitoring on launch</string>
          </property>
         </widget>
        </item>
