@@ -207,6 +207,9 @@ void MainWindow::saveSettings()
     m_settings->setValue("lastAuthRequired", ui->authCheckBox->isChecked());
     m_settings->setValue("lastUsername", ui->usernameEdit->text());
     m_settings->setValue("lastPassword", ui->passwordEdit->text());
+
+    // Ensure settings are written to disk
+    m_settings->sync();
 }
 
 void MainWindow::loadServerHistory()
@@ -373,6 +376,9 @@ void MainWindow::onAddExeClicked()
         appendLog(tr_log(QString("Added target: %1").arg(exeName),
                          QStringLiteral("已添加目标: %1").arg(exeName)));
     }
+
+    // Save settings immediately
+    saveSettings();
 }
 
 void MainWindow::onRemoveExeClicked()
@@ -389,6 +395,9 @@ void MainWindow::onRemoveExeClicked()
 
         appendLog(tr_log(QString("Removed target: %1").arg(exeName),
                          QStringLiteral("已删除目标: %1").arg(exeName)));
+
+        // Save settings immediately
+        saveSettings();
     }
 }
 
