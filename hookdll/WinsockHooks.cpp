@@ -265,69 +265,91 @@ bool WinsockHooks::InjectIntoProcess(HANDLE hProcess, HANDLE hThread, DWORD dwCr
 bool WinsockHooks::InjectIntoProcessByPid(DWORD processId) {
     DebugLog("InjectIntoProcessByPid: PID=%d", processId);
 
-    // Wait a bit for process to initialize
-    Sleep(50);
-
-    HANDLE hProcess = OpenProcess(
-        PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
-        PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
-        FALSE, processId);
-
-    if (!hProcess) {
-        DebugLog("InjectIntoProcessByPid: OpenProcess failed: %d", GetLastError());
-        return false;
-    }
-
-    // Create shared memory for child process
-    HookManager::CreateSharedMemoryForProcess(processId);
-
     std::wstring dllPath = GetCurrentDllPath();
     if (dllPath.empty()) {
         DebugLog("InjectIntoProcessByPid: Failed to get DLL path");
-        CloseHandle(hProcess);
         return false;
     }
 
     SIZE_T pathSize = (dllPath.length() + 1) * sizeof(wchar_t);
 
-    LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, pathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (!remoteMem) {
-        DebugLog("InjectIntoProcessByPid: VirtualAllocEx failed: %d", GetLastError());
-        CloseHandle(hProcess);
-        return false;
-    }
+    // Retry logic for processes that may not be fully initialized
+    const int maxRetries = 5;
+    const int retryDelayMs = 100;
 
-    SIZE_T bytesWritten;
-    if (!WriteProcessMemory(hProcess, remoteMem, dllPath.c_str(), pathSize, &bytesWritten)) {
-        DebugLog("InjectIntoProcessByPid: WriteProcessMemory failed: %d", GetLastError());
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+        // Wait for process to initialize (longer for first attempt, shorter for retries)
+        Sleep(attempt == 1 ? 100 : retryDelayMs);
+
+        HANDLE hProcess = OpenProcess(
+            PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION |
+            PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
+            FALSE, processId);
+
+        if (!hProcess) {
+            DWORD err = GetLastError();
+            DebugLog("InjectIntoProcessByPid: OpenProcess failed (attempt %d): %d", attempt, err);
+            if (err == ERROR_INVALID_PARAMETER) {
+                // Process no longer exists
+                return false;
+            }
+            continue;
+        }
+
+        // Note: Protected Process Light (PPL) detection would require newer SDK
+        // For now, we rely on VirtualAllocEx failing with ACCESS_DENIED
+
+        LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, pathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!remoteMem) {
+            DWORD err = GetLastError();
+            DebugLog("InjectIntoProcessByPid: VirtualAllocEx failed (attempt %d): %d", attempt, err);
+            CloseHandle(hProcess);
+            if (err == ERROR_ACCESS_DENIED) {
+                // May succeed on retry after process initializes
+                continue;
+            }
+            return false;
+        }
+
+        SIZE_T bytesWritten;
+        if (!WriteProcessMemory(hProcess, remoteMem, dllPath.c_str(), pathSize, &bytesWritten)) {
+            DebugLog("InjectIntoProcessByPid: WriteProcessMemory failed (attempt %d): %d", attempt, GetLastError());
+            VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+            CloseHandle(hProcess);
+            continue;
+        }
+
+        HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+        LPTHREAD_START_ROUTINE loadLibraryAddr = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryW");
+        if (!loadLibraryAddr) {
+            VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+            CloseHandle(hProcess);
+            return false;
+        }
+
+        // Create shared memory BEFORE starting the remote thread
+        // This way the DLL will find its config when it initializes
+        HookManager::CreateSharedMemoryForProcess(processId);
+
+        HANDLE hRemoteThread = CreateRemoteThread(hProcess, NULL, 0, loadLibraryAddr, remoteMem, 0, NULL);
+        if (!hRemoteThread) {
+            DebugLog("InjectIntoProcessByPid: CreateRemoteThread failed (attempt %d): %d", attempt, GetLastError());
+            VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
+            CloseHandle(hProcess);
+            continue;
+        }
+
+        WaitForSingleObject(hRemoteThread, 5000);
+        CloseHandle(hRemoteThread);
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
-        return false;
+
+        DebugLog("InjectIntoProcessByPid: DLL injected successfully on attempt %d", attempt);
+        return true;
     }
 
-    HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
-    LPTHREAD_START_ROUTINE loadLibraryAddr = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryW");
-    if (!loadLibraryAddr) {
-        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return false;
-    }
-
-    HANDLE hRemoteThread = CreateRemoteThread(hProcess, NULL, 0, loadLibraryAddr, remoteMem, 0, NULL);
-    if (!hRemoteThread) {
-        DebugLog("InjectIntoProcessByPid: CreateRemoteThread failed: %d", GetLastError());
-        VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-        CloseHandle(hProcess);
-        return false;
-    }
-
-    WaitForSingleObject(hRemoteThread, 5000);
-    CloseHandle(hRemoteThread);
-    VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
-    CloseHandle(hProcess);
-
-    DebugLog("InjectIntoProcessByPid: DLL injected successfully");
-    return true;
+    DebugLog("InjectIntoProcessByPid: All %d attempts failed for PID %d", maxRetries, processId);
+    return false;
 }
 
 // Hooked CreateProcessW
