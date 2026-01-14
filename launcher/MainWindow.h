@@ -4,6 +4,9 @@
 #include <QMainWindow>
 #include <QSettings>
 #include <QStringList>
+#include <QSystemTrayIcon>
+#include <QMenu>
+#include <QCloseEvent>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -18,6 +21,12 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+    // For single instance support
+    void bringToFront();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void onAddExeClicked();
@@ -50,12 +59,23 @@ private slots:
     // Launch test app
     void onLaunchTestAppClicked();
 
+    // System tray
+    void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
+    void onTrayExitClicked();
+
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;
     bool m_isChinese;
     QSettings* m_settings;
     bool m_serverConnected;  // Track if server is reachable
+
+    // System tray
+    QSystemTrayIcon* m_trayIcon;
+    QMenu* m_trayMenu;
+    QAction* m_showAction;
+    QAction* m_exitAction;
+    bool m_forceQuit;  // True when user wants to actually quit
 
     void updateStatus(const QString& message);
     void appendLog(const QString& message);
@@ -64,6 +84,7 @@ private:
     QString getHookDllPath();
     void updateProxyConfig();
     void retranslateUi();
+    void setupTrayIcon();
 
     // Settings save/load
     void loadSettings();

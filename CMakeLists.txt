@@ -45,7 +45,7 @@ else()
 endif()
 
 # Find Qt6
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network)
 qt_standard_project_setup()
 
 # Find Microsoft Detours (via vcpkg)
@@ -66,3 +66,4 @@ add_subdirectory(proxytestapp)
 
 # Ensure hookdll is built before launcher
 add_dependencies(MiniProxifier MiniProxifierHook)
+

@@ -10,6 +10,7 @@
 #include <QLocale>
 #include <QTimer>
 #include <QProcess>
+#include <QApplication>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -21,8 +22,16 @@ MainWindow::MainWindow(QWidget *parent)
     , m_isChinese(false)
     , m_settings(new QSettings("OpenProxifier", "MiniProxifier", this))
     , m_serverConnected(false)
+    , m_trayIcon(nullptr)
+    , m_trayMenu(nullptr)
+    , m_showAction(nullptr)
+    , m_exitAction(nullptr)
+    , m_forceQuit(false)
 {
     ui->setupUi(this);
+
+    // Setup system tray
+    setupTrayIcon();
 
     // Setup language selector
     ui->languageCombo->addItem("English", "en");
@@ -936,3 +945,69 @@ void MainWindow::onLaunchTestAppClicked()
     appendLog(tr_log("Launched ProxyTestApp.exe",
                      QStringLiteral("已启动 ProxyTestApp.exe")));
 }
+
+void MainWindow::setupTrayIcon()
+{
+    // Create tray icon
+    m_trayIcon = new QSystemTrayIcon(this);
+    m_trayIcon->setIcon(QIcon(":/app_icon.png"));
+    m_trayIcon->setToolTip("OpenProxifier");
+
+    // Create tray menu
+    m_trayMenu = new QMenu(this);
+    m_showAction = m_trayMenu->addAction(tr_log("Show", QStringLiteral("显示")));
+    m_trayMenu->addSeparator();
+    m_exitAction = m_trayMenu->addAction(tr_log("Exit", QStringLiteral("退出")));
+
+    m_trayIcon->setContextMenu(m_trayMenu);
+
+    // Connect signals
+    connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayIconActivated);
+    connect(m_showAction, &QAction::triggered, this, &MainWindow::bringToFront);
+    connect(m_exitAction, &QAction::triggered, this, &MainWindow::onTrayExitClicked);
+
+    m_trayIcon->show();
+
+    // Set window icon
+    setWindowIcon(QIcon(":/app_icon.png"));
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (m_forceQuit) {
+        event->accept();
+    } else {
+        hide();
+        m_trayIcon->showMessage(
+            tr_log("OpenProxifier", QStringLiteral("OpenProxifier")),
+            tr_log("Application minimized to tray. Right-click to exit.",
+                   QStringLiteral("程序已最小化到托盘。右键可退出。")),
+            QSystemTrayIcon::Information,
+            2000
+        );
+        event->ignore();
+    }
+}
+
+void MainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason)
+{
+    if (reason == QSystemTrayIcon::DoubleClick ||
+        reason == QSystemTrayIcon::Trigger) {
+        bringToFront();
+    }
+}
+
+void MainWindow::onTrayExitClicked()
+{
+    m_forceQuit = true;
+    close();
+}
+
+void MainWindow::bringToFront()
+{
+    show();
+    setWindowState(windowState() & ~Qt::WindowMinimized);
+    activateWindow();
+    raise();
+}
+

@@ -8,6 +8,8 @@ qt_add_executable(MiniProxifier
     Injector.h
     ProcessMonitor.cpp
     ProcessMonitor.h
+    resources/resources.qrc
+    resources/app.rc
 )
 
 # Link dependencies
@@ -15,6 +17,7 @@ target_link_libraries(MiniProxifier PRIVATE
     MiniProxifierCommon
     Qt6::Core
     Qt6::Widgets
+    Qt6::Network
     ws2_32
     kernel32
     psapi
