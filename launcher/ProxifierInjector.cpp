@@ -82,6 +82,7 @@ bool CreateProxySharedMemory(DWORD processId, uint32_t proxyIp, uint16_t proxyPo
     pConfig->version = ProxyConfig::VERSION;
     pConfig->proxyIp = proxyIp;
     pConfig->proxyPort = proxyPort;
+    pConfig->enabled = 1;  // Enable proxy
 
     UnmapViewOfFile(pConfig);
     // Don't close hMapFile - needs to stay open for target process
