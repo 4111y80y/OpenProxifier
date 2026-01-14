@@ -406,12 +406,13 @@ void ProcessMonitor::injectIntoRunningProcess(const QString& exeName)
             emit processDetected(exeName, pid);
 
             if (createProxySharedMemory(pid)) {
-                if (injectIntoProcess(pid)) {
+                QString error = injectIntoProcess(pid);
+                if (error.isEmpty()) {
                     m_injectedProcesses.insert(pid);
                     emit injectionResult(exeName, pid, true, "");
                     MonitorLog("Successfully injected into %s (PID %lu)", processName.toStdString().c_str(), pid);
                 } else {
-                    emit injectionResult(exeName, pid, false, "DLL injection failed");
+                    emit injectionResult(exeName, pid, false, error);
                 }
             } else {
                 emit injectionResult(exeName, pid, false, "Failed to create shared memory");
@@ -472,18 +473,18 @@ void ProcessMonitor::onProcessCreated(const QString& exeName, DWORD processId)
         MonitorLog("Failed to suspend process, injecting anyway");
     }
 
-    bool success = injectIntoProcess(processId);
+    QString error = injectIntoProcess(processId);
 
     if (suspended) {
         resumeProcess(processId);
         MonitorLog("Process resumed");
     }
 
-    if (success) {
+    if (error.isEmpty()) {
         m_injectedProcesses.insert(processId);
         emit injectionResult(exeName, processId, true, "Injection successful");
     } else {
-        emit injectionResult(exeName, processId, false, "Injection failed");
+        emit injectionResult(exeName, processId, false, error);
     }
 }
 
@@ -569,11 +570,12 @@ void ProcessMonitor::onMonitorThread()
                     MonitorLog("Detected target: %s (PID %d)", exeName.toStdString().c_str(), pid);
                     emit processDetected(exeName, pid);
 
-                    if (injectIntoProcess(pid)) {
+                    QString error = injectIntoProcess(pid);
+                    if (error.isEmpty()) {
                         m_injectedProcesses.insert(pid);
                         emit injectionResult(exeName, pid, true, "Injection successful");
                     } else {
-                        emit injectionResult(exeName, pid, false, "Injection failed");
+                        emit injectionResult(exeName, pid, false, error);
                     }
                 }
             } while (Process32NextW(hSnapshot, &pe32) && m_running);
@@ -644,7 +646,7 @@ bool ProcessMonitor::createProxySharedMemory(DWORD processId)
     return true;
 }
 
-bool ProcessMonitor::injectIntoProcess(DWORD processId)
+QString ProcessMonitor::injectIntoProcess(DWORD processId)
 {
     MonitorLog("injectIntoProcess called for PID %d", processId);
 
@@ -654,8 +656,9 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
         FALSE, processId);
 
     if (!hProcess) {
-        MonitorLog("Failed to open process %d, error: %d", processId, GetLastError());
-        return false;
+        DWORD err = GetLastError();
+        MonitorLog("Failed to open process %d, error: %d", processId, err);
+        return QString("Failed to open process (error %1)").arg(err);
     }
 
     // Check if target process architecture matches our DLL
@@ -666,7 +669,7 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
         if (isWow64) {
             MonitorLog("Skipping 32-bit process %d (we have 64-bit DLL)", processId);
             CloseHandle(hProcess);
-            return false;
+            return QString("Target is 32-bit, need 32-bit DLL (build x86 version)");
         }
 #else
         // We are 32-bit, target must also be 32-bit (WOW64 on 64-bit Windows, or native 32-bit)
@@ -675,14 +678,14 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
         if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 && !isWow64) {
             MonitorLog("Skipping 64-bit process %d (we have 32-bit DLL)", processId);
             CloseHandle(hProcess);
-            return false;
+            return QString("Target is 64-bit, need 64-bit DLL (build x64 version)");
         }
 #endif
     }
 
     if (!createProxySharedMemory(processId)) {
         CloseHandle(hProcess);
-        return false;
+        return QString("Failed to create shared memory");
     }
 
     std::wstring dllPathW = m_dllPath.toStdWString();
@@ -691,15 +694,17 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
     LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, pathSize,
                                       MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!remoteMem) {
+        DWORD err = GetLastError();
         CloseHandle(hProcess);
-        return false;
+        return QString("VirtualAllocEx failed (error %1)").arg(err);
     }
 
     SIZE_T bytesWritten;
     if (!WriteProcessMemory(hProcess, remoteMem, dllPathW.c_str(), pathSize, &bytesWritten)) {
+        DWORD err = GetLastError();
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
-        return false;
+        return QString("WriteProcessMemory failed (error %1)").arg(err);
     }
 
     HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
@@ -709,15 +714,16 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
     if (!loadLibraryAddr) {
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
-        return false;
+        return QString("Failed to get LoadLibraryW address");
     }
 
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, loadLibraryAddr, remoteMem, 0, NULL);
     if (!hThread) {
-        MonitorLog("CreateRemoteThread failed, error: %d", GetLastError());
+        DWORD err = GetLastError();
+        MonitorLog("CreateRemoteThread failed, error: %d", err);
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
         CloseHandle(hProcess);
-        return false;
+        return QString("CreateRemoteThread failed (error %1)").arg(err);
     }
 
     WaitForSingleObject(hThread, 5000);
@@ -726,7 +732,7 @@ bool ProcessMonitor::injectIntoProcess(DWORD processId)
     CloseHandle(hProcess);
 
     MonitorLog("Successfully injected into PID %d", processId);
-    return true;
+    return QString();  // Empty string = success
 }
 
 void ProcessMonitor::injectIntoExistingProcesses()
@@ -763,12 +769,13 @@ void ProcessMonitor::injectIntoExistingProcesses()
             MonitorLog("Found existing target process: %s (PID %d)", exeName.toStdString().c_str(), pid);
             emit processDetected(exeName, pid);
 
-            if (injectIntoProcess(pid)) {
+            QString error = injectIntoProcess(pid);
+            if (error.isEmpty()) {
                 m_injectedProcesses.insert(pid);
                 emit injectionResult(exeName, pid, true, "Injected into existing process");
                 injectedCount++;
             } else {
-                emit injectionResult(exeName, pid, false, "Failed to inject into existing process");
+                emit injectionResult(exeName, pid, false, error);
             }
         } while (Process32NextW(hSnapshot, &pe32));
     }

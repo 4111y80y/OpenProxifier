@@ -64,7 +64,7 @@ private slots:
     void onMonitorThread();
 
 private:
-    bool injectIntoProcess(DWORD processId);
+    QString injectIntoProcess(DWORD processId);  // Returns empty string on success, error message on failure
     bool createProxySharedMemory(DWORD processId);
     bool setProxyEnabled(DWORD processId, bool enabled);  // Enable/disable proxy for a process
     void disableAllInjectedProcesses();  // Disable proxy for all injected processes
