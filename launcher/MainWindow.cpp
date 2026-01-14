@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QLocale>
 #include <QTimer>
+#include <QProcess>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -58,6 +59,9 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect test server button
     connect(ui->testServerButton, &QPushButton::clicked, this, &MainWindow::onTestServerClicked);
 
+    // Connect launch test app button
+    connect(ui->launchTestAppButton, &QPushButton::clicked, this, &MainWindow::onLaunchTestAppClicked);
+
     // Connect proxy settings change signals for auto-test
     connect(ui->proxyHostEdit, &QLineEdit::textChanged, this, &MainWindow::onProxySettingsChanged);
     connect(ui->proxyPortSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onProxySettingsChanged);
@@ -90,11 +94,11 @@ MainWindow::MainWindow(QWidget *parent)
     // Load settings (includes server history and target list)
     loadSettings();
 
-    // Auto-add Antigravity.exe as default target if list is empty
+    // Auto-add ProxyTestApp.exe as default target if list is empty
     if (ui->exeListWidget->count() == 0) {
-        ui->exeListWidget->addItem("Antigravity.exe");
-        appendLog(tr_log("Added default target: Antigravity.exe",
-                         QStringLiteral("已添加默认目标: Antigravity.exe")));
+        ui->exeListWidget->addItem("ProxyTestApp.exe");
+        appendLog(tr_log("Added default target: ProxyTestApp.exe",
+                         QStringLiteral("已添加默认目标: ProxyTestApp.exe")));
     }
 
     // Apply initial language
@@ -109,8 +113,18 @@ MainWindow::MainWindow(QWidget *parent)
     // Auto-test connection on startup, then auto-start if enabled
     QTimer::singleShot(500, this, [this]() {
         onTestServerClicked();
-        if (m_serverConnected && ui->autoStartCheckBox->isChecked()) {
-            onStartMonitorClicked();
+        if (ui->autoStartCheckBox->isChecked()) {
+            if (m_serverConnected) {
+                onStartMonitorClicked();
+            } else {
+                // Show error when auto-start is enabled but connection failed
+                appendLog(tr_log("[WARNING] Auto-start failed: SOCKS5 server unreachable",
+                                 QStringLiteral("[警告] 自动启动失败: SOCKS5 服务器不可达")));
+                QMessageBox::warning(this,
+                    tr_log("Auto-start Failed", QStringLiteral("自动启动失败")),
+                    tr_log("Cannot auto-start monitoring: SOCKS5 proxy server is unreachable. Please check your proxy settings.",
+                           QStringLiteral("无法自动启动监控: SOCKS5 代理服务器不可达。请检查代理设置。")));
+            }
         }
     });
 }
@@ -569,7 +583,7 @@ void MainWindow::retranslateUi()
         ui->userLabel->setText(QStringLiteral("用户名:"));
         ui->passLabel->setText(QStringLiteral("密码:"));
         ui->targetGroup->setTitle(QStringLiteral("目标进程 (自动监控)"));
-        ui->exeNameEdit->setPlaceholderText(QStringLiteral("输入程序名 (例如: Antigravity.exe)"));
+        ui->exeNameEdit->setPlaceholderText(QStringLiteral("输入程序名 (例如: ProxyTestApp.exe)"));
         ui->addExeButton->setText(QStringLiteral("添加"));
         ui->removeExeButton->setText(QStringLiteral("删除"));
         ui->autoStartCheckBox->setText(QStringLiteral("启动时自动开始监控"));
@@ -578,6 +592,7 @@ void MainWindow::retranslateUi()
         ui->startMonitorButton->setToolTip(QStringLiteral("监控系统中的目标进程并自动注入"));
         ui->logGroup->setTitle(QStringLiteral("活动日志"));
         ui->testServerButton->setText(QStringLiteral("测试连接"));
+        ui->launchTestAppButton->setText(QStringLiteral("启动测试程序"));
 
         // Update status if not monitoring
         if (!m_monitor->isMonitoring()) {
@@ -603,7 +618,7 @@ void MainWindow::retranslateUi()
         ui->userLabel->setText("Username:");
         ui->passLabel->setText("Password:");
         ui->targetGroup->setTitle("Target Processes (Auto-Monitor)");
-        ui->exeNameEdit->setPlaceholderText("Enter exe name (e.g., Antigravity.exe)");
+        ui->exeNameEdit->setPlaceholderText("Enter exe name (e.g., ProxyTestApp.exe)");
         ui->addExeButton->setText("Add");
         ui->removeExeButton->setText("Remove");
         ui->autoStartCheckBox->setText("Auto-start monitoring on launch");
@@ -612,6 +627,7 @@ void MainWindow::retranslateUi()
         ui->startMonitorButton->setToolTip("Monitor system for target processes and auto-inject");
         ui->logGroup->setTitle("Activity Log");
         ui->testServerButton->setText("Test Connection");
+        ui->launchTestAppButton->setText("Launch Test App");
 
         // Update status if not monitoring
         if (!m_monitor->isMonitoring()) {
@@ -893,4 +909,22 @@ void MainWindow::onProxySettingsChanged()
     ui->startMonitorButton->setEnabled(false);
     ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测试")));
     ui->connectionStatusLabel->setStyleSheet("color: gray;");
+}
+
+void MainWindow::onLaunchTestAppClicked()
+{
+    QString appDir = QCoreApplication::applicationDirPath();
+    QString testAppPath = QDir(appDir).filePath("ProxyTestApp.exe");
+
+    if (!QFile::exists(testAppPath)) {
+        QMessageBox::warning(this,
+            tr_log("Error", QStringLiteral("错误")),
+            tr_log("ProxyTestApp.exe not found in application directory.",
+                   QStringLiteral("在程序目录中未找到 ProxyTestApp.exe。")));
+        return;
+    }
+
+    QProcess::startDetached(testAppPath, QStringList());
+    appendLog(tr_log("Launched ProxyTestApp.exe",
+                     QStringLiteral("已启动 ProxyTestApp.exe")));
 }

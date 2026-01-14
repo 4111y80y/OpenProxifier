@@ -47,6 +47,9 @@ private slots:
     void onTestServerClicked();
     void onProxySettingsChanged();
 
+    // Launch test app
+    void onLaunchTestAppClicked();
+
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;

@@ -1,12 +1,12 @@
 #include <QApplication>
-#include "AntigravityWindow.h"
+#include "TestAppWindow.h"
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    app.setApplicationName("Antigravity");
+    app.setApplicationName("ProxyTestApp");
 
-    AntigravityWindow window;
+    TestAppWindow window;
     window.show();
 
     return app.exec();
