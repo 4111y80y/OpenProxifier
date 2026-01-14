@@ -26,12 +26,7 @@ private slots:
     void onStartMonitorClicked();
     void onStopMonitorClicked();
 
-    // Launch options slots
-    void onBrowseClicked();
-    void onLaunchClicked();
-    void onCreateShortcutClicked();
-
-    // ProcessMonitor signals (kept for background monitoring)
+    // ProcessMonitor signals
     void onProcessDetected(const QString& exeName, unsigned long processId);
     void onInjectionResult(const QString& exeName, unsigned long processId, bool success, const QString& message);
     void onMonitoringStarted();
@@ -46,9 +41,7 @@ private:
     void appendLog(const QString& message);
     bool validateProxySettings();
     QString getHookDllPath();
-    QString getInjectorPath();
     void updateProxyConfig();
-    void saveProxyToEnv();
 };
 
 #endif // MAINWINDOW_H

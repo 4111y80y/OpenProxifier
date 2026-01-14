@@ -62,6 +62,7 @@ set(ARCH_SUFFIX ${ARCH_SUFFIX} CACHE STRING "Architecture suffix" FORCE)
 add_subdirectory(common)
 add_subdirectory(hookdll)
 add_subdirectory(launcher)
+add_subdirectory(antigravity)
 
 # Ensure hookdll is built before launcher
 add_dependencies(MiniProxifier MiniProxifierHook)
