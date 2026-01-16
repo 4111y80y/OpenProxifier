@@ -269,6 +269,21 @@ void MainWindow::onServerComboChanged(int index)
 {
     if (index <= 0) return;  // Skip placeholder
 
+    // If monitoring is active, stop it first
+    if (m_winDivertMode) {
+        stopWinDivertMode();
+        appendLog(tr_log("Monitoring stopped due to server change.",
+                         QStringLiteral("因切换服务器，监控已停止。")));
+    } else if (m_monitor->isMonitoring()) {
+        m_monitor->stopMonitoring();
+        appendLog(tr_log("Monitoring stopped due to server change.",
+                         QStringLiteral("因切换服务器，监控已停止。")));
+    }
+
+    // Reset connection state - need to re-test
+    m_serverConnected = false;
+    ui->startMonitorButton->setEnabled(false);
+
     QVariantMap data = ui->serverHistoryCombo->itemData(index).toMap();
     if (data.isEmpty()) return;
 
@@ -969,6 +984,17 @@ void MainWindow::onTestServerClicked()
 
 void MainWindow::onProxySettingsChanged()
 {
+    // If monitoring is active, stop it first
+    if (m_winDivertMode) {
+        stopWinDivertMode();
+        appendLog(tr_log("Monitoring stopped due to proxy settings change.",
+                         QStringLiteral("因代理设置更改，监控已停止。")));
+    } else if (m_monitor->isMonitoring()) {
+        m_monitor->stopMonitoring();
+        appendLog(tr_log("Monitoring stopped due to proxy settings change.",
+                         QStringLiteral("因代理设置更改，监控已停止。")));
+    }
+
     // When proxy settings change, mark as untested and disable monitoring
     m_serverConnected = false;
     ui->startMonitorButton->setEnabled(false);
