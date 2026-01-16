@@ -192,6 +192,8 @@ static DWORD WINAPI LocalProxyThread(LPVOID arg) {
         uint32_t dest_ip;
         uint16_t dest_port;
 
+        log_message("[LocalProxy] Accepted connection from port %d", client_port);
+
         if (!ConnectionTracker_Get(client_port, &dest_ip, &dest_port)) {
             log_message("[LocalProxy] No tracked connection for port %d", client_port);
             closesocket(client_sock);
