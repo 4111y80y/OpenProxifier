@@ -235,7 +235,31 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             continue;
         }
 
-        // Only handle outbound packets for monitoring/proxying
+        // Handle LocalProxy response packets (outbound from port 34010)
+        // These need NAT: change source from LocalProxy to original destination
+        if (addr.Outbound && !is_ipv6 && is_tcp && ip_header != NULL && tcp_header != NULL) {
+            if (ntohs(tcp_header->SrcPort) == LOCAL_TCP_PORT) {
+                // This is a response from LocalProxy, need to NAT it back
+                uint16_t client_port = ntohs(tcp_header->DstPort);
+                uint32_t orig_src_ip;
+                uint32_t orig_dest_ip;
+                uint16_t orig_dest_port;
+
+                if (ConnectionTracker_GetFull(client_port, &orig_src_ip, &orig_dest_ip, &orig_dest_port)) {
+                    // Change source to original destination (spoof response)
+                    // Change dest to original client IP
+                    ip_header->SrcAddr = orig_dest_ip;
+                    ip_header->DstAddr = orig_src_ip;
+                    tcp_header->SrcPort = htons(orig_dest_port);
+
+                    WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
+                    WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                    continue;
+                }
+            }
+        }
+
+        // Skip other inbound packets (shouldn't happen with current filter)
         if (!addr.Outbound) {
             WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
             continue;
@@ -340,14 +364,19 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             // IPv4 TCP proxy - redirect to local proxy
             ConnectionTracker_Add(src_port, src_ip, dest_ip, dest_port);
 
-            uint32_t temp = ip_header->DstAddr;
+            // Redirect to local proxy
+            // Set destination to source IP (connect to self)
+            // LocalProxy listens on 0.0.0.0:34010 so it will receive this
+            ip_header->DstAddr = src_ip;  // Redirect to client's own IP
             tcp_header->DstPort = htons(LOCAL_TCP_PORT);
-            ip_header->DstAddr = ip_header->SrcAddr;
-            ip_header->SrcAddr = temp;
-            addr.Outbound = FALSE;
+            // Keep outbound - packet goes to client's own IP
 
             WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
-            WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+            if (!WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr)) {
+                log_message("[PacketProcessor] WinDivertSend failed: %lu", GetLastError());
+            } else {
+                log_message("[PacketProcessor] Redirected port %d to local:34010", src_port);
+            }
             continue;
         }
 
@@ -390,9 +419,15 @@ bool PacketProcessor_Start(void) {
     if (g_running) return true;
 
     char filter[512];
-    // Capture both TCP and UDP, IPv4 and IPv6
+    // Capture TCP/UDP packets:
+    // - Outbound TCP: all except to local proxy port (for redirection)
+    // - Outbound UDP: all except to local relay port
+    // - Outbound TCP from local proxy: for NAT response (LocalProxy -> client)
     snprintf(filter, sizeof(filter),
-        "outbound and (tcp or udp)");
+        "(outbound and tcp and tcp.DstPort != %d and tcp.SrcPort != %d) or "
+        "(outbound and udp and udp.DstPort != %d) or "
+        "(outbound and tcp and tcp.SrcPort == %d)",
+        LOCAL_TCP_PORT, LOCAL_TCP_PORT, LOCAL_UDP_PORT, LOCAL_TCP_PORT);
 
     log_message("[PacketProcessor] Opening WinDivert with filter: %s", filter);
 

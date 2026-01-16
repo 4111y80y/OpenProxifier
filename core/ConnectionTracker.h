@@ -36,6 +36,10 @@ void ConnectionTracker_AddIPv6(uint16_t src_port, uint32_t src_ip,
 // Get original destination by source port (IPv4)
 bool ConnectionTracker_Get(uint16_t src_port, uint32_t* dest_ip, uint16_t* dest_port);
 
+// Get full connection info by source port (IPv4)
+bool ConnectionTracker_GetFull(uint16_t src_port, uint32_t* src_ip,
+                               uint32_t* dest_ip, uint16_t* dest_port);
+
 // Get original destination by source port (with IPv6 support)
 bool ConnectionTracker_GetEx(uint16_t src_port, uint32_t* dest_ip,
                              uint8_t* dest_ipv6, uint16_t* dest_port, bool* is_ipv6);

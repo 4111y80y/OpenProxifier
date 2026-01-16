@@ -120,6 +120,30 @@ bool ConnectionTracker_Get(uint16_t src_port, uint32_t* dest_ip, uint16_t* dest_
     return found;
 }
 
+
+bool ConnectionTracker_GetFull(uint16_t src_port, uint32_t* src_ip,
+                               uint32_t* dest_ip, uint16_t* dest_port) {
+    if (!g_initialized) return false;
+
+    bool found = false;
+    EnterCriticalSection(&g_lock);
+
+    ConnectionInfo* conn = g_connection_list;
+    while (conn != NULL) {
+        if (conn->src_port == src_port && !conn->is_ipv6) {
+            *src_ip = conn->src_ip;
+            *dest_ip = conn->orig_dest_ip;
+            *dest_port = conn->orig_dest_port;
+            found = true;
+            break;
+        }
+        conn = conn->next;
+    }
+
+    LeaveCriticalSection(&g_lock);
+    return found;
+}
+
 bool ConnectionTracker_GetEx(uint16_t src_port, uint32_t* dest_ip,
                              uint8_t* dest_ipv6, uint16_t* dest_port, bool* is_ipv6) {
     if (!g_initialized) return false;

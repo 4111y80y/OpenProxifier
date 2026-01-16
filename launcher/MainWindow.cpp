@@ -113,14 +113,14 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->exeListWidget->count() == 0) {
         ui->exeListWidget->addItem("ProxyTestApp.exe");
         appendLog(tr_log("Added default target: ProxyTestApp.exe",
-                         QStringLiteral("已添加默认目标: ProxyTestApp.exe")));
+                         QStringLiteral("已添加默认目�? ProxyTestApp.exe")));
     }
 
     // Apply initial language
     retranslateUi();
 
     // Initial connection status
-    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测试")));
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测�?)));
     ui->connectionStatusLabel->setStyleSheet("color: gray;");
 
     updateStatus(tr_log("Ready", QStringLiteral("就绪")));
@@ -138,7 +138,7 @@ MainWindow::MainWindow(QWidget *parent)
                 QMessageBox::warning(this,
                     tr_log("Auto-start Failed", QStringLiteral("自动启动失败")),
                     tr_log("Cannot auto-start monitoring: SOCKS5 proxy server is unreachable. Please check your proxy settings.",
-                           QStringLiteral("无法自动启动监控: SOCKS5 代理服务器不可达。请检查代理设置。")));
+                           QStringLiteral("无法自动启动监控: SOCKS5 代理服务器不可达。请检查代理设置�?)));
             }
         }
     });
@@ -222,7 +222,7 @@ void MainWindow::loadServerHistory()
 {
     ui->serverHistoryCombo->clear();
     ui->serverHistoryCombo->addItem(tr_log("-- Select saved server --",
-                                           QStringLiteral("-- 选择已保存的服务器 --")));
+                                           QStringLiteral("-- 选择已保存的服务�?--")));
 
     int count = m_settings->beginReadArray("serverHistory");
     for (int i = 0; i < count; ++i) {
@@ -289,7 +289,7 @@ void MainWindow::onSaveServerClicked()
         QMessageBox::warning(this,
             tr_log("Error", QStringLiteral("错误")),
             tr_log("Please enter a server address first.",
-                   QStringLiteral("请先输入服务器地址。")));
+                   QStringLiteral("请先输入服务器地址�?)));
         return;
     }
 
@@ -336,7 +336,7 @@ void MainWindow::onDeleteServerClicked()
         QMessageBox::warning(this,
             tr_log("Error", QStringLiteral("错误")),
             tr_log("Please select a saved server to delete.",
-                   QStringLiteral("请选择要删除的服务器。")));
+                   QStringLiteral("请选择要删除的服务器�?)));
         return;
     }
 
@@ -365,7 +365,7 @@ void MainWindow::onAddExeClicked()
             QMessageBox::warning(this,
                 tr_log("Duplicate", QStringLiteral("重复")),
                 tr_log("This executable is already in the list.",
-                       QStringLiteral("该程序已在列表中。")));
+                       QStringLiteral("该程序已在列表中�?)));
             return;
         }
     }
@@ -377,10 +377,10 @@ void MainWindow::onAddExeClicked()
     if (m_monitor->isMonitoring()) {
         m_monitor->addTargetProcess(exeName, true);  // true = inject into running instances now
         appendLog(tr_log(QString("Added target: %1 (scanning for running instances...)").arg(exeName),
-                         QStringLiteral("已添加目标: %1 (正在扫描运行中的实例...)").arg(exeName)));
+                         QStringLiteral("已添加目�? %1 (正在扫描运行中的实例...)").arg(exeName)));
     } else {
         appendLog(tr_log(QString("Added target: %1").arg(exeName),
-                         QStringLiteral("已添加目标: %1").arg(exeName)));
+                         QStringLiteral("已添加目�? %1").arg(exeName)));
     }
 
     // Save settings immediately
@@ -400,7 +400,7 @@ void MainWindow::onRemoveExeClicked()
         }
 
         appendLog(tr_log(QString("Removed target: %1").arg(exeName),
-                         QStringLiteral("已删除目标: %1").arg(exeName)));
+                         QStringLiteral("已删除目�? %1").arg(exeName)));
 
         // Save settings immediately
         saveSettings();
@@ -429,9 +429,9 @@ void MainWindow::onStartMonitorClicked()
     // Legacy DLL injection mode
     if (ui->exeListWidget->count() == 0) {
         QMessageBox::warning(this,
-            tr_log("No Targets", QStringLiteral("无目标")),
+            tr_log("No Targets", QStringLiteral("无目�?)),
             tr_log("Please add at least one target executable to monitor.",
-                   QStringLiteral("请至少添加一个目标程序。")));
+                   QStringLiteral("请至少添加一个目标程序�?)));
         return;
     }
 
@@ -439,7 +439,7 @@ void MainWindow::onStartMonitorClicked()
     if (dllPath.isEmpty()) {
         QMessageBox::critical(this,
             tr_log("Error", QStringLiteral("错误")),
-            tr_log("Hook DLL not found!", QStringLiteral("Hook DLL 未找到!")));
+            tr_log("Hook DLL not found!", QStringLiteral("Hook DLL 未找�?")));
         return;
     }
 
@@ -477,7 +477,7 @@ void MainWindow::onInjectionResult(const QString& exeName, unsigned long process
 {
     if (success) {
         appendLog(tr_log(QString("[SUCCESS] Injected into %1 (PID: %2)").arg(exeName).arg(processId),
-                         QStringLiteral("[成功] 已注入 %1 (PID: %2)").arg(exeName).arg(processId)));
+                         QStringLiteral("[成功] 已注�?%1 (PID: %2)").arg(exeName).arg(processId)));
     } else {
         appendLog(tr_log(QString("[FAILED] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message),
                          QStringLiteral("[失败] %1 (PID: %2): %3").arg(exeName).arg(processId).arg(message)));
@@ -495,9 +495,9 @@ void MainWindow::onMonitoringStarted()
     ui->removeExeButton->setEnabled(true);
     ui->exeListWidget->setEnabled(true);
     ui->autoStartCheckBox->setEnabled(false);
-    updateStatus(tr_log("Monitoring...", QStringLiteral("监控中...")));
+    updateStatus(tr_log("Monitoring...", QStringLiteral("监控�?..")));
     appendLog(tr_log("[INFO] Monitoring started - waiting for target processes...",
-                     QStringLiteral("[信息] 监控已启动 - 等待目标进程...")));
+                     QStringLiteral("[信息] 监控已启�?- 等待目标进程...")));
 }
 
 void MainWindow::onMonitoringStopped()
@@ -513,7 +513,7 @@ void MainWindow::onMonitoringStopped()
     ui->autoStartCheckBox->setEnabled(true);
     updateStatus(tr_log("Ready", QStringLiteral("就绪")));
     appendLog(tr_log("[INFO] Monitoring stopped",
-                     QStringLiteral("[信息] 监控已停止")));
+                     QStringLiteral("[信息] 监控已停�?)));
 }
 
 void MainWindow::onMonitorError(const QString& message)
@@ -526,7 +526,7 @@ void MainWindow::onMonitorError(const QString& message)
 
 void MainWindow::updateStatus(const QString& message)
 {
-    ui->statusLabel->setText(tr_log("Status: ", QStringLiteral("状态: ")) + message);
+    ui->statusLabel->setText(tr_log("Status: ", QStringLiteral("状�? ")) + message);
 }
 
 void MainWindow::appendLog(const QString& message)
@@ -546,7 +546,7 @@ bool MainWindow::validateProxySettings()
         QMessageBox::warning(this,
             tr_log("Validation Error", QStringLiteral("验证错误")),
             tr_log("Please enter proxy server address.",
-                   QStringLiteral("请输入代理服务器地址。")));
+                   QStringLiteral("请输入代理服务器地址�?)));
         return false;
     }
 
@@ -556,7 +556,7 @@ bool MainWindow::validateProxySettings()
         QMessageBox::warning(this,
             tr_log("Validation Error", QStringLiteral("验证错误")),
             tr_log("Invalid proxy IP address.",
-                   QStringLiteral("无效的代理IP地址。")));
+                   QStringLiteral("无效的代理IP地址�?)));
         return false;
     }
 
@@ -565,7 +565,7 @@ bool MainWindow::validateProxySettings()
             QMessageBox::warning(this,
                 tr_log("Validation Error", QStringLiteral("验证错误")),
                 tr_log("Please enter username for authentication.",
-                       QStringLiteral("请输入认证用户名。")));
+                       QStringLiteral("请输入认证用户名�?)));
             return false;
         }
     }
@@ -626,19 +626,19 @@ void MainWindow::retranslateUi()
         ui->historyLabel->setText(QStringLiteral("历史:"));
         ui->saveServerButton->setText(QStringLiteral("保存"));
         ui->deleteServerButton->setText(QStringLiteral("删除"));
-        ui->hostLabel->setText(QStringLiteral("服务器:"));
+        ui->hostLabel->setText(QStringLiteral("服务�?"));
         ui->portLabel->setText(QStringLiteral("端口:"));
-        ui->authCheckBox->setText(QStringLiteral("需要身份验证"));
-        ui->userLabel->setText(QStringLiteral("用户名:"));
+        ui->authCheckBox->setText(QStringLiteral("需要身份验�?));
+        ui->userLabel->setText(QStringLiteral("用户�?"));
         ui->passLabel->setText(QStringLiteral("密码:"));
         ui->targetGroup->setTitle(QStringLiteral("目标进程 (自动监控)"));
-        ui->exeNameEdit->setPlaceholderText(QStringLiteral("输入程序名 (例如: ProxyTestApp.exe)"));
+        ui->exeNameEdit->setPlaceholderText(QStringLiteral("输入程序�?(例如: ProxyTestApp.exe)"));
         ui->addExeButton->setText(QStringLiteral("添加"));
         ui->removeExeButton->setText(QStringLiteral("删除"));
-        ui->autoStartCheckBox->setText(QStringLiteral("启动时自动开始监控"));
-        ui->startMonitorButton->setText(QStringLiteral("开始监控"));
+        ui->autoStartCheckBox->setText(QStringLiteral("启动时自动开始监�?));
+        ui->startMonitorButton->setText(QStringLiteral("开始监�?));
         ui->stopMonitorButton->setText(QStringLiteral("停止监控"));
-        ui->startMonitorButton->setToolTip(QStringLiteral("监控系统中的目标进程并自动注入"));
+        ui->startMonitorButton->setToolTip(QStringLiteral("监控系统中的目标进程并自动注�?));
         ui->logGroup->setTitle(QStringLiteral("活动日志"));
         ui->testServerButton->setText(QStringLiteral("测试连接"));
         ui->launchTestAppButton->setText(QStringLiteral("启动测试程序"));
@@ -647,12 +647,12 @@ void MainWindow::retranslateUi()
         if (!m_monitor->isMonitoring()) {
             updateStatus(QStringLiteral("就绪"));
         } else {
-            updateStatus(QStringLiteral("监控中..."));
+            updateStatus(QStringLiteral("监控�?.."));
         }
 
         // Update server history combo placeholder
         if (ui->serverHistoryCombo->count() > 0) {
-            ui->serverHistoryCombo->setItemText(0, QStringLiteral("-- 选择已保存的服务器 --"));
+            ui->serverHistoryCombo->setItemText(0, QStringLiteral("-- 选择已保存的服务�?--"));
         }
 
         // Update tray menu
@@ -660,7 +660,7 @@ void MainWindow::retranslateUi()
             m_showAction->setText(QStringLiteral("显示"));
         }
         if (m_exitAction) {
-            m_exitAction->setText(QStringLiteral("退出"));
+            m_exitAction->setText(QStringLiteral("退�?));
         }
     } else {
         // English translations
@@ -748,13 +748,13 @@ void MainWindow::onTestServerClicked()
     int port = ui->proxyPortSpin->value();
 
     // Show testing status
-    ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试中...")));
+    ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试�?..")));
     ui->connectionStatusLabel->setStyleSheet("color: blue;");
     ui->testServerButton->setEnabled(false);
     QCoreApplication::processEvents();
 
     appendLog(tr_log(QString("Testing connection to %1:%2%3...").arg(host).arg(port).arg(authRequired ? " (with auth)" : ""),
-                     QStringLiteral("测试连接 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (带认证)") : "")));
+                     QStringLiteral("测试连接 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (带认�?") : "")));
 
     // Initialize Winsock if needed
     WSADATA wsaData;
@@ -764,13 +764,13 @@ void MainWindow::onTestServerClicked()
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET) {
         ui->connectionStatusLabel->setText(tr_log("Socket error",
-                                                   QStringLiteral("套接字错误")));
+                                                   QStringLiteral("套接字错�?)));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Failed to create socket",
-                         QStringLiteral("[错误] 创建套接字失败")));
+                         QStringLiteral("[错误] 创建套接字失�?)));
         return;
     }
 
@@ -825,7 +825,7 @@ void MainWindow::onTestServerClicked()
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] SOCKS5 handshake send failed",
-                         QStringLiteral("[错误] SOCKS5 握手发送失败")));
+                         QStringLiteral("[错误] SOCKS5 握手发送失�?)));
         return;
     }
 
@@ -836,7 +836,7 @@ void MainWindow::onTestServerClicked()
     if (received != 2 || response[0] != 0x05) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("Not a SOCKS5 server",
-                                                   QStringLiteral("非SOCKS5服务器")));
+                                                   QStringLiteral("非SOCKS5服务�?)));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
@@ -850,13 +850,13 @@ void MainWindow::onTestServerClicked()
     if (response[1] == 0xFF) {
         closesocket(sock);
         ui->connectionStatusLabel->setText(tr_log("No acceptable auth",
-                                                   QStringLiteral("无可用认证方式")));
+                                                   QStringLiteral("无可用认证方�?)));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
         ui->startMonitorButton->setEnabled(false);
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Server rejected all authentication methods",
-                         QStringLiteral("[错误] 服务器拒绝了所有认证方式")));
+                         QStringLiteral("[错误] 服务器拒绝了所有认证方�?)));
         return;
     }
 
@@ -865,13 +865,13 @@ void MainWindow::onTestServerClicked()
         if (!authRequired || username.isEmpty()) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth required by server",
-                                                       QStringLiteral("服务器需要认证")));
+                                                       QStringLiteral("服务器需要认�?)));
             ui->connectionStatusLabel->setStyleSheet("color: orange;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
             ui->testServerButton->setEnabled(true);
             appendLog(tr_log("[ERROR] Server requires authentication but none provided",
-                             QStringLiteral("[错误] 服务器需要认证但未提供")));
+                             QStringLiteral("[错误] 服务器需要认证但未提�?)));
             return;
         }
 
@@ -902,7 +902,7 @@ void MainWindow::onTestServerClicked()
         if (sent != static_cast<int>(authReq.size())) {
             closesocket(sock);
             ui->connectionStatusLabel->setText(tr_log("Auth send failed",
-                                                       QStringLiteral("认证发送失败")));
+                                                       QStringLiteral("认证发送失�?)));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
             ui->startMonitorButton->setEnabled(false);
@@ -956,15 +956,15 @@ void MainWindow::onTestServerClicked()
 
     // Success!
     QString statusText = authRequired ?
-        tr_log("Connected (auth OK)", QStringLiteral("已连接 (认证成功)")) :
-        tr_log("Connected", QStringLiteral("已连接"));
+        tr_log("Connected (auth OK)", QStringLiteral("已连�?(认证成功)")) :
+        tr_log("Connected", QStringLiteral("已连�?));
     ui->connectionStatusLabel->setText(statusText);
     ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
     m_serverConnected = true;
     ui->startMonitorButton->setEnabled(true);
     ui->testServerButton->setEnabled(true);
     appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(host).arg(port).arg(authRequired ? " (authenticated)" : ""),
-                     QStringLiteral("[成功] SOCKS5 服务器 %1:%2 可达%3").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (已认证)") : "")));
+                     QStringLiteral("[成功] SOCKS5 服务�?%1:%2 可达%3").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (已认�?") : "")));
 }
 
 void MainWindow::onProxySettingsChanged()
@@ -972,7 +972,7 @@ void MainWindow::onProxySettingsChanged()
     // When proxy settings change, mark as untested and disable monitoring
     m_serverConnected = false;
     ui->startMonitorButton->setEnabled(false);
-    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测试")));
+    ui->connectionStatusLabel->setText(tr_log("Not tested", QStringLiteral("未测�?)));
     ui->connectionStatusLabel->setStyleSheet("color: gray;");
 }
 
@@ -985,13 +985,13 @@ void MainWindow::onLaunchTestAppClicked()
         QMessageBox::warning(this,
             tr_log("Error", QStringLiteral("错误")),
             tr_log("ProxyTestApp.exe not found in application directory.",
-                   QStringLiteral("在程序目录中未找到 ProxyTestApp.exe。")));
+                   QStringLiteral("在程序目录中未找�?ProxyTestApp.exe�?)));
         return;
     }
 
     QProcess::startDetached(testAppPath, QStringList());
     appendLog(tr_log("Launched ProxyTestApp.exe",
-                     QStringLiteral("已启动 ProxyTestApp.exe")));
+                     QStringLiteral("已启�?ProxyTestApp.exe")));
 }
 
 void MainWindow::setupTrayIcon()
@@ -1005,7 +1005,7 @@ void MainWindow::setupTrayIcon()
     m_trayMenu = new QMenu(this);
     m_showAction = m_trayMenu->addAction(tr_log("Show", QStringLiteral("显示")));
     m_trayMenu->addSeparator();
-    m_exitAction = m_trayMenu->addAction(tr_log("Exit", QStringLiteral("退出")));
+    m_exitAction = m_trayMenu->addAction(tr_log("Exit", QStringLiteral("退�?)));
 
     m_trayIcon->setContextMenu(m_trayMenu);
 
@@ -1029,7 +1029,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         m_trayIcon->showMessage(
             tr_log("OpenProxifier", QStringLiteral("OpenProxifier")),
             tr_log("Application minimized to system tray (bottom-right corner). Right-click tray icon to exit.",
-                   QStringLiteral("程序已最小化到系统托盘（右下角）。右键点击托盘图标可退出。")),
+                   QStringLiteral("程序已最小化到系统托盘（右下角）。右键点击托盘图标可退出�?)),
             QSystemTrayIcon::Information,
             3000
         );
@@ -1089,7 +1089,7 @@ void MainWindow::onWinDivertModeChanged(int state)
     m_winDivertMode = (state == Qt::Checked);
     appendLog(tr_log(
         m_winDivertMode ? "Switched to WinDivert mode (system-wide)" : "Switched to DLL injection mode (per-process)",
-        m_winDivertMode ? QStringLiteral("已切换到 WinDivert 模式 (系统级)") : QStringLiteral("已切换到 DLL 注入模式 (进程级)")
+        m_winDivertMode ? QStringLiteral("已切换到 WinDivert 模式 (系统�?") : QStringLiteral("已切换到 DLL 注入模式 (进程�?")
     ));
 }
 
@@ -1121,16 +1121,16 @@ void MainWindow::onEngineStarted()
 {
     ui->startMonitorButton->setEnabled(false);
     ui->stopMonitorButton->setEnabled(true);
-    updateStatus(tr_log("WinDivert engine running", QStringLiteral("WinDivert 引擎运行中")));
-    appendLog(tr_log("[SUCCESS] WinDivert engine started", QStringLiteral("[成功] WinDivert 引擎已启动")));
+    updateStatus(tr_log("WinDivert engine running", QStringLiteral("WinDivert 引擎运行�?)));
+    appendLog(tr_log("[SUCCESS] WinDivert engine started", QStringLiteral("[成功] WinDivert 引擎已启�?)));
 }
 
 void MainWindow::onEngineStopped()
 {
     ui->startMonitorButton->setEnabled(true);
     ui->stopMonitorButton->setEnabled(false);
-    updateStatus(tr_log("Stopped", QStringLiteral("已停止")));
-    appendLog(tr_log("[INFO] WinDivert engine stopped", QStringLiteral("[信息] WinDivert 引擎已停止")));
+    updateStatus(tr_log("Stopped", QStringLiteral("已停�?)));
+    appendLog(tr_log("[INFO] WinDivert engine stopped", QStringLiteral("[信息] WinDivert 引擎已停�?)));
 }
 
 void MainWindow::onEngineError(const QString& message)
@@ -1170,7 +1170,7 @@ void MainWindow::startWinDivertMode()
         // No specific targets, proxy all traffic
         m_engine->addRule("*", "*", "*", RULE_PROTOCOL_BOTH, RULE_ACTION_PROXY);
         appendLog(tr_log("[INFO] No specific targets, proxying all traffic",
-                         QStringLiteral("[信息] 未指定目标程序，代理所有流量")));
+                         QStringLiteral("[信息] 未指定目标程序，代理所有流�?)));
     } else {
         // Add rules for each target process
         for (int i = 0; i < ui->exeListWidget->count(); ++i) {
