@@ -4,6 +4,10 @@
 
 A Windows transparent SOCKS5 proxy tool that routes network connections of target applications through a SOCKS5 proxy without modifying the target program or system proxy settings.
 
+## Demo
+
+![Demo](docs/demo.gif)
+
 ## Features
 
 - **Two Proxy Modes**:
