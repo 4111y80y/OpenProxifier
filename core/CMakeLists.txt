@@ -18,6 +18,7 @@ set(SOURCES
     RuleEngine.c
     Socks5.c
     ProcessTracker.c
+    UdpRelay.c
 )
 
 set(HEADERS
@@ -28,6 +29,7 @@ set(HEADERS
     RuleEngine.h
     Socks5.h
     ProcessTracker.h
+    UdpRelay.h
 )
 
 # Create static library

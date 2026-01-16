@@ -3,6 +3,7 @@
 #include "LocalProxy.h"
 #include "ConnectionTracker.h"
 #include "RuleEngine.h"
+#include "UdpRelay.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -39,6 +40,7 @@ bool ProxyEngine_Init(void) {
 
     ConnectionTracker_Init();
     RuleEngine_Init();
+    UdpRelay_Init();
 
     if (!LocalProxy_Init()) {
         return false;
@@ -62,6 +64,7 @@ void ProxyEngine_Cleanup(void) {
     PacketProcessor_Cleanup();
     LocalProxy_Cleanup();
     RuleEngine_Cleanup();
+    UdpRelay_Cleanup();
     ConnectionTracker_Cleanup();
 
     g_initialized = false;
@@ -148,6 +151,11 @@ bool ProxyEngine_Start(void) {
     if (g_running) return true;
 
     // Start local proxy server
+    if (!UdpRelay_Start(LOCAL_UDP_PORT)) {
+        log_message("[ProxyEngine] Failed to start UDP relay");
+        return false;
+    }
+
     if (!LocalProxy_Start(LOCAL_TCP_PORT)) {
         log_message("[ProxyEngine] Failed to start local proxy");
         return false;
@@ -160,6 +168,7 @@ bool ProxyEngine_Start(void) {
     if (!PacketProcessor_Start()) {
         log_message("[ProxyEngine] Failed to start packet processor");
         LocalProxy_Stop();
+    UdpRelay_Stop();
         return false;
     }
 
@@ -183,6 +192,7 @@ bool ProxyEngine_Stop(void) {
 
     PacketProcessor_Stop();
     LocalProxy_Stop();
+    UdpRelay_Stop();
     ConnectionTracker_Clear();
 
     g_running = false;

@@ -3,6 +3,7 @@
 #include "RuleEngine.h"
 #include "ProxyEngine.h"
 #include "ProcessTracker.h"
+#include "UdpRelay.h"
 #include "../windivert/include/windivert.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -278,14 +279,9 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             if (action == RULE_ACTION_PROXY && PacketProcessor_IsBroadcastOrMulticast(dest_ip))
                 action = RULE_ACTION_DIRECT;
 
-            // No proxy configured or UDP proxy not supported yet
+            // No proxy configured
             if (action == RULE_ACTION_PROXY && (g_proxy_host[0] == '\0' || g_proxy_port == 0))
                 action = RULE_ACTION_DIRECT;
-
-            // UDP proxy not implemented yet
-            if (action == RULE_ACTION_PROXY && is_udp) {
-                action = RULE_ACTION_DIRECT;
-            }
         } else {
             // IPv6: only DIRECT or BLOCK (no proxy support yet)
             action = RuleEngine_Match(process_name, 0, dest_port, is_tcp);
@@ -330,6 +326,22 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
             WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
             continue;
+        }
+
+        if (action == RULE_ACTION_PROXY && is_udp && !is_ipv6) {
+            // IPv4 UDP proxy - redirect to UDP relay
+            uint16_t relay_port = UdpRelay_AddSession(src_ip, src_port, dest_ip, dest_port);
+            if (relay_port != 0) {
+                uint32_t temp = ip_header->DstAddr;
+                udp_header->DstPort = htons(relay_port);
+                ip_header->DstAddr = ip_header->SrcAddr;
+                ip_header->SrcAddr = temp;
+                addr.Outbound = FALSE;
+
+                WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
+                WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                continue;
+            }
         }
 
         // DIRECT - just forward the packet
