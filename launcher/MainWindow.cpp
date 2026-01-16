@@ -15,6 +15,216 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <vector>
+
+// Connection test thread class
+class ConnectionTestThread : public QThread
+{
+    Q_OBJECT
+
+public:
+    ConnectionTestThread(const QString& host, int port, bool authRequired,
+                         const QString& username, const QString& password, bool isChinese)
+        : m_host(host), m_port(port), m_authRequired(authRequired),
+          m_username(username), m_password(password), m_isChinese(isChinese) {}
+
+signals:
+    void testCompleted(bool success, const QString& message, const QString& statusText, const QString& statusColor);
+
+protected:
+    void run() override
+    {
+        // Initialize Winsock
+        WSADATA wsaData;
+        WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+        // Convert host to IP address
+        struct in_addr addr;
+        if (inet_pton(AF_INET, m_host.toStdString().c_str(), &addr) != 1) {
+            QString msg = m_isChinese ? QStringLiteral("[错误] 无效的IP地址") : "[ERROR] Invalid IP address";
+            QString statusText = m_isChinese ? QStringLiteral("无效的IP地址") : "Invalid IP address";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Create socket
+        SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (sock == INVALID_SOCKET) {
+            QString msg = m_isChinese ? QStringLiteral("[错误] 创建套接字失败") : "[ERROR] Failed to create socket";
+            QString statusText = m_isChinese ? QStringLiteral("套接字错误") : "Socket error";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Set timeout (10 seconds)
+        DWORD timeout = 10000;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+
+        // Connect to proxy server
+        sockaddr_in proxyAddr;
+        proxyAddr.sin_family = AF_INET;
+        proxyAddr.sin_addr.s_addr = addr.s_addr;
+        proxyAddr.sin_port = htons(static_cast<uint16_t>(m_port));
+
+        int result = ::connect(sock, reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
+        if (result == SOCKET_ERROR) {
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 无法连接 %1:%2").arg(m_host).arg(m_port) :
+                QString("[ERROR] Cannot connect to %1:%2").arg(m_host).arg(m_port);
+            QString statusText = m_isChinese ? QStringLiteral("连接失败") : "Connection failed";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // SOCKS5 handshake
+        uint8_t greeting[4];
+        int greetingLen;
+        if (m_authRequired) {
+            greeting[0] = 0x05;  // VER
+            greeting[1] = 0x02;  // NMETHODS
+            greeting[2] = 0x00;  // METHOD: no auth
+            greeting[3] = 0x02;  // METHOD: username/password
+            greetingLen = 4;
+        } else {
+            greeting[0] = 0x05;  // VER
+            greeting[1] = 0x01;  // NMETHODS
+            greeting[2] = 0x00;  // METHOD: no auth
+            greetingLen = 3;
+        }
+
+        int sent = send(sock, reinterpret_cast<char*>(greeting), greetingLen, 0);
+        if (sent != greetingLen) {
+            closesocket(sock);
+            QString msg = m_isChinese ? QStringLiteral("[错误] SOCKS5 握手发送失败") : "[ERROR] SOCKS5 handshake send failed";
+            QString statusText = m_isChinese ? QStringLiteral("握手失败") : "Handshake failed";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Receive handshake response
+        uint8_t response[2];
+        int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
+
+        if (received != 2 || response[0] != 0x05) {
+            closesocket(sock);
+            QString msg = m_isChinese ? QStringLiteral("[错误] 服务器不是有效的SOCKS5代理") : "[ERROR] Server is not a valid SOCKS5 proxy";
+            QString statusText = m_isChinese ? QStringLiteral("非SOCKS5服务器") : "Not a SOCKS5 server";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Check server's chosen auth method
+        if (response[1] == 0xFF) {
+            closesocket(sock);
+            QString msg = m_isChinese ? QStringLiteral("[错误] 服务器拒绝了所有认证方式") : "[ERROR] Server rejected all authentication methods";
+            QString statusText = m_isChinese ? QStringLiteral("无可用认证方式") : "No acceptable auth";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // If server requires username/password auth (0x02)
+        if (response[1] == 0x02) {
+            if (!m_authRequired || m_username.isEmpty()) {
+                closesocket(sock);
+                QString msg = m_isChinese ? QStringLiteral("[错误] 服务器需要认证但未提供") : "[ERROR] Server requires authentication but none provided";
+                QString statusText = m_isChinese ? QStringLiteral("服务器需要认证") : "Auth required by server";
+                emit testCompleted(false, msg, statusText, "orange");
+                WSACleanup();
+                return;
+            }
+
+            // RFC 1929 Username/Password Authentication
+            std::string user = m_username.toStdString();
+            std::string pass = m_password.toStdString();
+
+            if (user.length() > 255 || pass.length() > 255) {
+                closesocket(sock);
+                QString msg = m_isChinese ? QStringLiteral("[错误] 用户名或密码过长") : "[ERROR] Credentials too long";
+                QString statusText = m_isChinese ? QStringLiteral("凭证过长") : "Credentials too long";
+                emit testCompleted(false, msg, statusText, "red");
+                WSACleanup();
+                return;
+            }
+
+            // Build auth request: VER(0x01) ULEN USERNAME PLEN PASSWORD
+            std::vector<uint8_t> authReq;
+            authReq.push_back(0x01);  // VER
+            authReq.push_back(static_cast<uint8_t>(user.length()));
+            authReq.insert(authReq.end(), user.begin(), user.end());
+            authReq.push_back(static_cast<uint8_t>(pass.length()));
+            authReq.insert(authReq.end(), pass.begin(), pass.end());
+
+            sent = send(sock, reinterpret_cast<char*>(authReq.data()), static_cast<int>(authReq.size()), 0);
+            if (sent != static_cast<int>(authReq.size())) {
+                closesocket(sock);
+                QString msg = m_isChinese ? QStringLiteral("[错误] 认证请求发送失败") : "[ERROR] Auth send failed";
+                QString statusText = m_isChinese ? QStringLiteral("认证发送失败") : "Auth send failed";
+                emit testCompleted(false, msg, statusText, "red");
+                WSACleanup();
+                return;
+            }
+
+            // Receive auth response: VER(0x01) STATUS
+            uint8_t authResponse[2];
+            received = recv(sock, reinterpret_cast<char*>(authResponse), 2, 0);
+            if (received != 2 || authResponse[0] != 0x01) {
+                closesocket(sock);
+                QString msg = m_isChinese ? QStringLiteral("[错误] 认证响应格式错误") : "[ERROR] Auth response error";
+                QString statusText = m_isChinese ? QStringLiteral("认证响应错误") : "Auth response error";
+                emit testCompleted(false, msg, statusText, "red");
+                WSACleanup();
+                return;
+            }
+
+            if (authResponse[1] != 0x00) {
+                closesocket(sock);
+                QString msg = m_isChinese ? QStringLiteral("[错误] 认证失败 - 用户名或密码错误") : "[ERROR] Authentication failed - wrong username or password";
+                QString statusText = m_isChinese ? QStringLiteral("认证失败 (密码错误)") : "Auth failed (wrong password)";
+                emit testCompleted(false, msg, statusText, "red");
+                WSACleanup();
+                return;
+            }
+        } else if (response[1] != 0x00) {
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 不支持的认证方式: 0x%1").arg(response[1], 2, 16, QChar('0')) :
+                QString("[ERROR] Unsupported auth method: 0x%1").arg(response[1], 2, 16, QChar('0'));
+            QString statusText = m_isChinese ? QStringLiteral("不支持的认证方式") : "Unsupported auth method";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        closesocket(sock);
+        WSACleanup();
+
+        // Success!
+        QString msg = m_isChinese ?
+            QStringLiteral("[成功] SOCKS5 服务器 %1:%2 可达%3").arg(m_host).arg(m_port).arg(m_authRequired ? QStringLiteral(" (已认证)") : "") :
+            QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(m_host).arg(m_port).arg(m_authRequired ? " (authenticated)" : "");
+        QString statusText = m_authRequired ?
+            (m_isChinese ? QStringLiteral("已连接 (认证成功)") : "Connected (auth OK)") :
+            (m_isChinese ? QStringLiteral("已连接") : "Connected");
+        emit testCompleted(true, msg, statusText, "green; font-weight: bold");
+    }
+
+private:
+    QString m_host;
+    int m_port;
+    bool m_authRequired;
+    QString m_username;
+    QString m_password;
+    bool m_isChinese;
+};
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -25,6 +235,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_settings(new QSettings("OpenProxifier", "MiniProxifier", this))
     , m_serverConnected(false)
     , m_winDivertMode(true)  // Default to WinDivert mode
+    , m_testThread(nullptr)
     , m_trayIcon(nullptr)
     , m_trayMenu(nullptr)
     , m_showAction(nullptr)
@@ -142,6 +353,19 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    // Clean up test thread
+    if (m_testThread) {
+        if (m_testThread->isRunning()) {
+            m_testThread->wait(2000);  // Wait up to 2 seconds
+            if (m_testThread->isRunning()) {
+                m_testThread->terminate();
+                m_testThread->wait();
+            }
+        }
+        delete m_testThread;
+        m_testThread = nullptr;
+    }
+
     saveSettings();
     m_monitor->stopMonitoring();
     delete ui;
@@ -737,8 +961,10 @@ void MainWindow::retranslateUi()
 
 void MainWindow::onTestServerClicked()
 {
-    // Check if currently monitoring - don't change button state if so
-    bool isCurrentlyMonitoring = (m_engine && m_engine->isRunning()) || m_monitor->isMonitoring();
+    // If a test is already running, ignore
+    if (m_testThread && m_testThread->isRunning()) {
+        return;
+    }
 
     QString host = ui->proxyHostEdit->text().trimmed();
     if (host.isEmpty()) {
@@ -746,26 +972,21 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("请输入服务器地址")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
-        if (!isCurrentlyMonitoring) {
-            ui->startMonitorButton->setEnabled(false);
-        }
+        ui->startMonitorButton->setEnabled(false);
         return;
     }
 
-    // Validate IP address
+    // Basic validation
     struct in_addr addr;
     if (inet_pton(AF_INET, host.toStdString().c_str(), &addr) != 1) {
         ui->connectionStatusLabel->setText(tr_log("Invalid IP address",
                                                    QStringLiteral("无效的IP地址")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        if (!isCurrentlyMonitoring) {
-            ui->startMonitorButton->setEnabled(false);
-        }
+        ui->startMonitorButton->setEnabled(false);
         return;
     }
 
-    // Check if auth is required but credentials are empty
     bool authRequired = ui->authCheckBox->isChecked();
     QString username = ui->usernameEdit->text();
     QString password = ui->passwordEdit->text();
@@ -775,9 +996,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("需要用户名")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
-        if (!isCurrentlyMonitoring) {
-            ui->startMonitorButton->setEnabled(false);
-        }
+        ui->startMonitorButton->setEnabled(false);
         return;
     }
 
@@ -787,222 +1006,43 @@ void MainWindow::onTestServerClicked()
     ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试中...")));
     ui->connectionStatusLabel->setStyleSheet("color: blue;");
     ui->testServerButton->setEnabled(false);
-    QCoreApplication::processEvents();
 
     appendLog(tr_log(QString("Testing connection to %1:%2%3...").arg(host).arg(port).arg(authRequired ? " (with auth)" : ""),
                      QStringLiteral("测试连接 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (带认证)") : "")));
 
-    // Initialize Winsock if needed
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    // Create socket
-    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock == INVALID_SOCKET) {
-        ui->connectionStatusLabel->setText(tr_log("Socket error",
-                                                   QStringLiteral("套接字错误")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) {
-            ui->startMonitorButton->setEnabled(false);
-        }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log("[ERROR] Failed to create socket",
-                         QStringLiteral("[错误] 创建套接字失败")));
-        return;
+    // Clean up old thread if exists
+    if (m_testThread) {
+        delete m_testThread;
+        m_testThread = nullptr;
     }
 
-    // Set timeout (10 seconds)
-    DWORD timeout = 10000;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+    // Create and start test thread
+    m_testThread = new ConnectionTestThread(host, port, authRequired, username, password, m_isChinese);
+    connect(m_testThread, &ConnectionTestThread::testCompleted,
+            this, &MainWindow::onTestCompleted, Qt::QueuedConnection);
+    connect(m_testThread, &ConnectionTestThread::finished,
+            m_testThread, &QObject::deleteLater);
+    m_testThread->start();
+}
 
-    // Connect to proxy server
-    sockaddr_in proxyAddr;
-    proxyAddr.sin_family = AF_INET;
-    proxyAddr.sin_addr.s_addr = addr.s_addr;
-    proxyAddr.sin_port = htons(static_cast<uint16_t>(port));
-
-    int result = ::connect(sock, reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
-    if (result == SOCKET_ERROR) {
-        closesocket(sock);
-        ui->connectionStatusLabel->setText(tr_log("Connection failed",
-                                                   QStringLiteral("连接失败")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log(QString("[ERROR] Cannot connect to %1:%2").arg(host).arg(port),
-                         QStringLiteral("[错误] 无法连接 %1:%2").arg(host).arg(port)));
-        return;
-    }
-
-    // SOCKS5 handshake - offer both no-auth and username/password auth
-    uint8_t greeting[4];
-    int greetingLen;
-    if (authRequired) {
-        greeting[0] = 0x05;  // VER
-        greeting[1] = 0x02;  // NMETHODS
-        greeting[2] = 0x00;  // METHOD: no auth
-        greeting[3] = 0x02;  // METHOD: username/password
-        greetingLen = 4;
-    } else {
-        greeting[0] = 0x05;  // VER
-        greeting[1] = 0x01;  // NMETHODS
-        greeting[2] = 0x00;  // METHOD: no auth
-        greetingLen = 3;
-    }
-
-    int sent = send(sock, reinterpret_cast<char*>(greeting), greetingLen, 0);
-    if (sent != greetingLen) {
-        closesocket(sock);
-        ui->connectionStatusLabel->setText(tr_log("Handshake failed",
-                                                   QStringLiteral("握手失败")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log("[ERROR] SOCKS5 handshake send failed",
-                         QStringLiteral("[错误] SOCKS5 握手发送失败")));
-        return;
-    }
-
-    // Receive handshake response
-    uint8_t response[2];
-    int received = recv(sock, reinterpret_cast<char*>(response), 2, 0);
-
-    if (received != 2 || response[0] != 0x05) {
-        closesocket(sock);
-        ui->connectionStatusLabel->setText(tr_log("Not a SOCKS5 server",
-                                                   QStringLiteral("非SOCKS5服务器")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log("[ERROR] Server is not a valid SOCKS5 proxy",
-                         QStringLiteral("[错误] 服务器不是有效的SOCKS5代理")));
-        return;
-    }
-
-    // Check server's chosen auth method
-    if (response[1] == 0xFF) {
-        closesocket(sock);
-        ui->connectionStatusLabel->setText(tr_log("No acceptable auth",
-                                                   QStringLiteral("无可用认证方式")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log("[ERROR] Server rejected all authentication methods",
-                         QStringLiteral("[错误] 服务器拒绝了所有认证方式")));
-        return;
-    }
-
-    // If server requires username/password auth (0x02)
-    if (response[1] == 0x02) {
-        if (!authRequired || username.isEmpty()) {
-            closesocket(sock);
-            ui->connectionStatusLabel->setText(tr_log("Auth required by server",
-                                                       QStringLiteral("服务器需要认证")));
-            ui->connectionStatusLabel->setStyleSheet("color: orange;");
-            m_serverConnected = false;
-            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-            ui->testServerButton->setEnabled(true);
-            appendLog(tr_log("[ERROR] Server requires authentication but none provided",
-                             QStringLiteral("[错误] 服务器需要认证但未提供")));
-            return;
-        }
-
-        // RFC 1929 Username/Password Authentication
-        std::string user = username.toStdString();
-        std::string pass = password.toStdString();
-
-        if (user.length() > 255 || pass.length() > 255) {
-            closesocket(sock);
-            ui->connectionStatusLabel->setText(tr_log("Credentials too long",
-                                                       QStringLiteral("凭证过长")));
-            ui->connectionStatusLabel->setStyleSheet("color: red;");
-            m_serverConnected = false;
-            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-            ui->testServerButton->setEnabled(true);
-            return;
-        }
-
-        // Build auth request: VER(0x01) ULEN USERNAME PLEN PASSWORD
-        std::vector<uint8_t> authReq;
-        authReq.push_back(0x01);  // VER
-        authReq.push_back(static_cast<uint8_t>(user.length()));
-        authReq.insert(authReq.end(), user.begin(), user.end());
-        authReq.push_back(static_cast<uint8_t>(pass.length()));
-        authReq.insert(authReq.end(), pass.begin(), pass.end());
-
-        sent = send(sock, reinterpret_cast<char*>(authReq.data()), static_cast<int>(authReq.size()), 0);
-        if (sent != static_cast<int>(authReq.size())) {
-            closesocket(sock);
-            ui->connectionStatusLabel->setText(tr_log("Auth send failed",
-                                                       QStringLiteral("认证发送失败")));
-            ui->connectionStatusLabel->setStyleSheet("color: red;");
-            m_serverConnected = false;
-            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-            ui->testServerButton->setEnabled(true);
-            return;
-        }
-
-        // Receive auth response: VER(0x01) STATUS
-        uint8_t authResponse[2];
-        received = recv(sock, reinterpret_cast<char*>(authResponse), 2, 0);
-        if (received != 2 || authResponse[0] != 0x01) {
-            closesocket(sock);
-            ui->connectionStatusLabel->setText(tr_log("Auth response error",
-                                                       QStringLiteral("认证响应错误")));
-            ui->connectionStatusLabel->setStyleSheet("color: red;");
-            m_serverConnected = false;
-            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-            ui->testServerButton->setEnabled(true);
-            return;
-        }
-
-        if (authResponse[1] != 0x00) {
-            closesocket(sock);
-            ui->connectionStatusLabel->setText(tr_log("Auth failed (wrong password)",
-                                                       QStringLiteral("认证失败 (密码错误)")));
-            ui->connectionStatusLabel->setStyleSheet("color: red;");
-            m_serverConnected = false;
-            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-            ui->testServerButton->setEnabled(true);
-            appendLog(tr_log("[ERROR] Authentication failed - wrong username or password",
-                             QStringLiteral("[错误] 认证失败 - 用户名或密码错误")));
-            return;
-        }
-
-        appendLog(tr_log("[SUCCESS] Authentication successful",
-                         QStringLiteral("[成功] 认证成功")));
-    } else if (response[1] != 0x00) {
-        closesocket(sock);
-        ui->connectionStatusLabel->setText(tr_log("Unsupported auth method",
-                                                   QStringLiteral("不支持的认证方式")));
-        ui->connectionStatusLabel->setStyleSheet("color: red;");
-        m_serverConnected = false;
-        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
-        ui->testServerButton->setEnabled(true);
-        appendLog(tr_log(QString("[ERROR] Unsupported auth method: 0x%1").arg(response[1], 2, 16, QChar('0')),
-                         QStringLiteral("[错误] 不支持的认证方式: 0x%1").arg(response[1], 2, 16, QChar('0'))));
-        return;
-    }
-
-    closesocket(sock);
-
-    // Success!
-    QString statusText = authRequired ?
-        tr_log("Connected (auth OK)", QStringLiteral("已连接 (认证成功)")) :
-        tr_log("Connected", QStringLiteral("已连接"));
+void MainWindow::onTestCompleted(bool success, const QString& message, const QString& statusText, const QString& statusColor)
+{
+    // Update connection status
+    m_serverConnected = success;
     ui->connectionStatusLabel->setText(statusText);
-    ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
-    m_serverConnected = true;
-    if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(true); }
+    ui->connectionStatusLabel->setStyleSheet(QString("color: %1;").arg(statusColor));
+
+    // Log the result
+    appendLog(message);
+
+    // Re-enable test button
     ui->testServerButton->setEnabled(true);
-    appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(host).arg(port).arg(authRequired ? " (authenticated)" : ""),
-                     QStringLiteral("[成功] SOCKS5 服务器 %1:%2 可达%3").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (已认证)") : "")));
+
+    // Enable/disable monitoring button based on connection success
+    bool isCurrentlyMonitoring = (m_engine && m_engine->isRunning()) || m_monitor->isMonitoring();
+    if (!isCurrentlyMonitoring) {
+        ui->startMonitorButton->setEnabled(success);
+    }
 }
 
 void MainWindow::onProxySettingsChanged()
@@ -1245,3 +1285,6 @@ void MainWindow::stopWinDivertMode()
         m_engine->stop();
     }
 }
+
+// Include moc for embedded Q_OBJECT class (ConnectionTestThread)
+#include "MainWindow.moc"

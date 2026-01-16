@@ -7,6 +7,7 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QCloseEvent>
+#include <QThread>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -14,6 +15,7 @@ QT_END_NAMESPACE
 
 class ProcessMonitor;
 class ProxyEngineWrapper;
+class ConnectionTestThread;
 
 class MainWindow : public QMainWindow
 {
@@ -66,6 +68,7 @@ private slots:
     // Server connectivity test
     void onTestServerClicked();
     void onProxySettingsChanged();
+    void onTestCompleted(bool success, const QString& message, const QString& statusText, const QString& statusColor);
 
     // Launch test app
     void onLaunchTestAppClicked();
@@ -82,6 +85,7 @@ private:
     QSettings* m_settings;
     bool m_serverConnected;  // Track if server is reachable
     bool m_winDivertMode;    // WinDivert mode flag
+    ConnectionTestThread* m_testThread;  // Thread for connection testing
 
     // System tray
     QSystemTrayIcon* m_trayIcon;
