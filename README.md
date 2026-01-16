@@ -1,195 +1,195 @@
 # OpenProxifier
 
-[English](README.md) | [中文](README_CN.md)
+[English](README_EN.md) | [中文](README.md)
 
-A Windows transparent SOCKS5 proxy tool that routes network connections of target applications through a SOCKS5 proxy without modifying the target program or system proxy settings.
+一个 Windows 透明 SOCKS5 代理工具，可以将目标应用程序的网络连接通过 SOCKS5 代理路由，无需修改目标程序或系统代理设置。
 
-## Features
+## 功能特性
 
-- **Two Proxy Modes**:
-  - **WinDivert Mode**: Kernel-level packet interception for true transparent proxy (recommended)
-  - **DLL Injection Mode**: Hook Winsock APIs via DLL injection for legacy compatibility
-- **Rule-Based Routing**: Configure per-application rules (PROXY / DIRECT / BLOCK)
-- **Process Monitoring**: Automatically detect and proxy target processes when they start
-- **SOCKS5 Authentication**: Full support for username/password authentication (RFC 1929)
-- **Connection Testing**: Test proxy server connectivity and authentication before starting
-- **Server History**: Save and manage multiple proxy server configurations
-- **System Tray**: Minimize to system tray with quick access menu
-- **Built-in Test Tool**: ProxyTestApp for verifying proxy functionality
-- **Bilingual Interface**: Full English and Chinese UI support
+- **双代理模式**：
+  - **WinDivert 模式**：内核级数据包拦截，实现真正的透明代理（推荐）
+  - **DLL 注入模式**：通过 DLL 注入 Hook Winsock API，兼容旧版应用
+- **规则路由**：为不同应用配置不同规则（代理 / 直连 / 阻止）
+- **进程监控**：自动检测目标进程启动并进行代理
+- **SOCKS5 认证**：完整支持用户名/密码认证（RFC 1929）
+- **连接测试**：启动前测试代理服务器连接和认证
+- **服务器历史**：保存和管理多个代理服务器配置
+- **系统托盘**：最小化到系统托盘，快速访问菜单
+- **内置测试工具**：ProxyTestApp 用于验证代理功能
+- **双语界面**：完整的中英文界面支持
 
-## How It Works
+## 工作原理
 
-### WinDivert Mode (Recommended)
+### WinDivert 模式（推荐）
 
 ```
 OpenProxifier (Qt GUI)
         |
-        | WinDivert kernel driver
+        | WinDivert 内核驱动
         v
-Network Packets <---> PacketProcessor
+网络数据包 <---> PacketProcessor
         |
-        | NAT redirect to LocalProxy
+        | NAT 重定向到 LocalProxy
         v
 LocalProxy (TCP:34010)
         |
-        | SOCKS5 tunnel
+        | SOCKS5 隧道
         v
-SOCKS5 Proxy Server
+SOCKS5 代理服务器
         |
         v
-    Internet
+      互联网
 ```
 
-WinDivert mode intercepts network packets at the kernel level using the WinDivert driver. Packets from monitored applications are redirected to a local proxy which tunnels them through the SOCKS5 proxy. This provides true transparent proxying without modifying target applications.
+WinDivert 模式使用 WinDivert 驱动在内核层拦截网络数据包。来自被监控应用程序的数据包被重定向到本地代理，然后通过 SOCKS5 代理隧道传输。这提供了真正的透明代理，无需修改目标应用程序。
 
-### DLL Injection Mode
+### DLL 注入模式
 
 ```
 OpenProxifier (Qt GUI)
         |
-        | Monitor & Inject
+        | 监控 & 注入
         v
-TargetApp.exe
+目标应用程序.exe
         |
-        | Hook Winsock APIs
+        | Hook Winsock API
         v
 OpenProxifierHook.dll
         |
-        | Redirect connections
+        | 重定向连接
         v
-SOCKS5 Proxy Server
+SOCKS5 代理服务器
 ```
 
-DLL injection mode uses Microsoft Detours to hook Winsock API calls (`connect`, `WSAConnect`) and redirect TCP connections through the SOCKS5 proxy.
+DLL 注入模式使用 Microsoft Detours 钩住 Winsock API 调用（`connect`、`WSAConnect`），将 TCP 连接重定向到 SOCKS5 代理。
 
-## Requirements
+## 系统要求
 
-- Windows 10/11 (64-bit)
-- Administrator privileges (required for WinDivert)
-- Qt 6.x (for building)
+- Windows 10/11（64位）
+- 管理员权限（WinDivert 模式必需）
+- Qt 6.x（用于编译）
 - CMake 3.20+
-- vcpkg (for Microsoft Detours)
+- vcpkg（用于 Microsoft Detours）
 
-## Building
+## 构建方法
 
-1. **Install dependencies via vcpkg**:
+1. **通过 vcpkg 安装依赖**：
    ```batch
    vcpkg install detours:x64-windows
    ```
 
-2. **Configure and build**:
+2. **配置并构建**：
    ```batch
    cmake -B build -A x64 -DCMAKE_PREFIX_PATH=C:/Qt/6.x/msvc2022_64 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
    cmake --build build --config Release
    ```
 
-3. **Output files** are in `build/bin/Release/`:
-   - `OpenProxifier_x64.exe` - Main GUI application
-   - `OpenProxifierHook_x64.dll` - Hook DLL for injection mode
-   - `ProxyTestApp.exe` - Proxy testing tool
-   - `WinDivert64.sys` / `WinDivert.dll` - WinDivert driver and library
+3. **输出文件**位于 `build/bin/Release/`：
+   - `OpenProxifier_x64.exe` - 主程序
+   - `OpenProxifierHook_x64.dll` - 注入模式使用的 Hook DLL
+   - `ProxyTestApp.exe` - 代理测试工具
+   - `WinDivert64.sys` / `WinDivert.dll` - WinDivert 驱动和库
 
-## Usage
+## 使用方法
 
-### GUI Mode
+### 图形界面模式
 
-1. Launch `OpenProxifier_x64.exe` **as Administrator**
-2. Configure SOCKS5 proxy settings (server, port, optional authentication)
-3. Click "Test Connection" to verify proxy connectivity
-4. Add target process names to the rule list with desired action:
-   - **PROXY**: Route through SOCKS5 proxy
-   - **DIRECT**: Allow direct connection (bypass proxy)
-   - **BLOCK**: Block all connections
-5. Click "Start Monitoring" to begin transparent proxying
-6. Use "Launch Test App" to verify proxy is working
+1. **以管理员身份**启动 `OpenProxifier_x64.exe`
+2. 配置 SOCKS5 代理设置（服务器、端口、可选认证）
+3. 点击"测试连接"验证代理连通性
+4. 添加目标进程名称到规则列表，选择操作：
+   - **代理**：通过 SOCKS5 代理路由
+   - **直连**：直接连接（绕过代理）
+   - **阻止**：阻止所有连接
+5. 点击"开始监控"开始透明代理
+6. 使用"启动测试程序"验证代理是否正常工作
 
-### Command Line Mode
+### 命令行模式
 
 ```batch
-# Set proxy via environment variable
+# 通过环境变量设置代理
 set PROXIFIER_PROXY=127.0.0.1:1080
 
-# Inject into a specific program
+# 注入到指定程序
 ProxifierInjector_x64.exe notepad.exe
 
-# With authentication
+# 带认证
 set PROXIFIER_PROXY=127.0.0.1:1080
-set PROXIFIER_USER=username
-set PROXIFIER_PASS=password
+set PROXIFIER_USER=用户名
+set PROXIFIER_PASS=密码
 ProxifierInjector_x64.exe curl.exe http://httpbin.org/ip
 ```
 
-## Project Structure
+## 项目结构
 
 ```
 OpenProxifier/
-├── launcher/           # Qt GUI application
-│   ├── MainWindow.*    # Main window UI and logic
-│   ├── ProcessMonitor.*# Process detection and injection
-│   ├── Injector.*      # DLL injection implementation
-│   └── ProxyEngineWrapper.*  # C++/C bridge for core engine
-├── core/               # WinDivert transparent proxy engine (C)
-│   ├── ProxyEngine.*   # Main engine interface
-│   ├── PacketProcessor.* # Packet interception and NAT
-│   ├── LocalProxy.*    # Local SOCKS5 tunnel proxy
-│   ├── RuleEngine.*    # Per-application routing rules
-│   ├── ConnectionTracker.* # NAT connection tracking
-│   ├── Socks5.*        # SOCKS5 protocol implementation
-│   └── UdpRelay.*      # UDP relay support
-├── hookdll/            # Injected DLL for injection mode
-│   ├── HookManager.*   # Hook installation/removal
-│   ├── WinsockHooks.*  # Winsock API hooks
-│   └── Socks5Client.*  # SOCKS5 protocol implementation
-├── proxytestapp/       # Proxy test application
-├── common/             # Shared headers
-│   ├── ProxyConfig.h   # Proxy configuration structure
-│   └── SharedMemory.h  # IPC via shared memory
-└── cli/                # Command line tools
+├── launcher/           # Qt GUI 应用程序
+│   ├── MainWindow.*    # 主窗口界面和逻辑
+│   ├── ProcessMonitor.*# 进程检测和注入
+│   ├── Injector.*      # DLL 注入实现
+│   └── ProxyEngineWrapper.*  # C++/C 桥接层
+├── core/               # WinDivert 透明代理引擎（C语言）
+│   ├── ProxyEngine.*   # 主引擎接口
+│   ├── PacketProcessor.* # 数据包拦截和 NAT
+│   ├── LocalProxy.*    # 本地 SOCKS5 隧道代理
+│   ├── RuleEngine.*    # 应用程序路由规则
+│   ├── ConnectionTracker.* # NAT 连接跟踪
+│   ├── Socks5.*        # SOCKS5 协议实现
+│   └── UdpRelay.*      # UDP 中继支持
+├── hookdll/            # 注入模式使用的 DLL
+│   ├── HookManager.*   # Hook 安装/移除
+│   ├── WinsockHooks.*  # Winsock API 钩子
+│   └── Socks5Client.*  # SOCKS5 协议实现
+├── proxytestapp/       # 代理测试应用程序
+├── common/             # 共享头文件
+│   ├── ProxyConfig.h   # 代理配置结构体
+│   └── SharedMemory.h  # 通过共享内存进行 IPC
+└── cli/                # 命令行工具
 ```
 
-## Technical Details
+## 技术细节
 
-### WinDivert Mode
+### WinDivert 模式
 
-- Uses WinDivert 2.2 for kernel-level packet capture
-- Implements bidirectional NAT for transparent redirection
-- LocalProxy listens on TCP port 34010
-- Supports per-process rule matching via PID tracking
+- 使用 WinDivert 2.2 进行内核级数据包捕获
+- 实现双向 NAT 进行透明重定向
+- LocalProxy 监听 TCP 端口 34010
+- 通过 PID 跟踪支持按进程规则匹配
 
-### Hooked APIs (Injection Mode)
+### Hook API（注入模式）
 
-| DLL | Function | Purpose |
-|-----|----------|---------|
-| ws2_32.dll | connect | Redirect TCP connections |
-| ws2_32.dll | WSAConnect | Redirect TCP connections (extended) |
-| kernel32.dll | CreateProcessW | Inject into child processes |
-| kernel32.dll | CreateProcessA | Inject into child processes |
+| DLL | 函数 | 用途 |
+|-----|------|------|
+| ws2_32.dll | connect | 重定向 TCP 连接 |
+| ws2_32.dll | WSAConnect | 重定向 TCP 连接（扩展版） |
+| kernel32.dll | CreateProcessW | 注入子进程 |
+| kernel32.dll | CreateProcessA | 注入子进程 |
 
-### SOCKS5 Protocol Support
+### SOCKS5 协议支持
 
-- SOCKS5 version 5 (RFC 1928)
-- No authentication (0x00)
-- Username/password authentication (0x02, RFC 1929)
-- CONNECT command for TCP connections
-- IPv4 and IPv6 address support
+- SOCKS5 版本 5（RFC 1928）
+- 无认证（0x00）
+- 用户名/密码认证（0x02，RFC 1929）
+- TCP 连接的 CONNECT 命令
+- 支持 IPv4 和 IPv6 地址
 
-## Known Limitations
+## 已知限制
 
-- WinDivert mode requires Administrator privileges
-- Some applications with anti-debugging features may not work with injection mode
-- UDP proxying is experimental
+- WinDivert 模式需要管理员权限
+- 某些带有反调试功能的应用程序可能无法使用注入模式
+- UDP 代理为实验性功能
 
-## License
+## 许可证
 
-Apache-2.0 (commercial friendly)
+Apache-2.0（商业友好）
 
-## Contributing
+## 贡献
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+欢迎贡献！请随时提交问题和拉取请求。
 
-## Acknowledgments
+## 致谢
 
-- [WinDivert](https://github.com/basil00/WinDivert) - Windows packet capture/modification library
-- [Microsoft Detours](https://github.com/microsoft/Detours) - API hooking library
-- [Qt Framework](https://www.qt.io/) - GUI framework
+- [WinDivert](https://github.com/basil00/WinDivert) - Windows 数据包捕获/修改库
+- [Microsoft Detours](https://github.com/microsoft/Detours) - API 钩子库
+- [Qt Framework](https://www.qt.io/) - GUI 框架
