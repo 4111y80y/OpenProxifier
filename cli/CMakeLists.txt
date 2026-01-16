@@ -4,8 +4,7 @@ project(OpenProxifierCLI C)
 
 set(CMAKE_C_STANDARD 11)
 
-# Add core library
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../core ${CMAKE_CURRENT_BINARY_DIR}/core)
+# Note: core library is added by parent CMakeLists.txt
 
 # CLI executable
 add_executable(OpenProxifierCLI main.c)

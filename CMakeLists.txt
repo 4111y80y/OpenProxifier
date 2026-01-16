@@ -58,11 +58,15 @@ message(STATUS "Detours library: ${DETOURS_LIBRARY}")
 # Export architecture suffix for subprojects
 set(ARCH_SUFFIX ${ARCH_SUFFIX} CACHE STRING "Architecture suffix" FORCE)
 
-# Add subprojects
+# Add subprojects (DLL injection mode - legacy)
 add_subdirectory(common)
 add_subdirectory(hookdll)
 add_subdirectory(launcher)
 add_subdirectory(proxytestapp)
+
+# Add WinDivert-based core engine and CLI (new architecture)
+add_subdirectory(core)
+add_subdirectory(cli)
 
 # Ensure hookdll is built before launcher
 add_dependencies(MiniProxifier MiniProxifierHook)
