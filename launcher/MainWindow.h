@@ -13,6 +13,7 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class ProcessMonitor;
+class ProxyEngineWrapper;
 
 class MainWindow : public QMainWindow
 {
@@ -37,12 +38,22 @@ private slots:
     void onStartMonitorClicked();
     void onStopMonitorClicked();
 
-    // ProcessMonitor signals
+    // ProcessMonitor signals (legacy DLL injection mode)
     void onProcessDetected(const QString& exeName, unsigned long processId);
     void onInjectionResult(const QString& exeName, unsigned long processId, bool success, const QString& message);
     void onMonitoringStarted();
     void onMonitoringStopped();
     void onMonitorError(const QString& message);
+
+    // WinDivert mode signals
+    void onWinDivertModeChanged(int state);
+    void onEngineLogMessage(const QString& message);
+    void onEngineConnectionDetected(const QString& process, uint32_t pid,
+                                     const QString& destIp, uint16_t destPort,
+                                     const QString& status);
+    void onEngineStarted();
+    void onEngineStopped();
+    void onEngineError(const QString& message);
 
     // Language
     void onLanguageChanged(int index);
@@ -66,9 +77,11 @@ private slots:
 private:
     Ui::MainWindow *ui;
     ProcessMonitor* m_monitor;
+    ProxyEngineWrapper* m_engine;
     bool m_isChinese;
     QSettings* m_settings;
     bool m_serverConnected;  // Track if server is reachable
+    bool m_winDivertMode;    // WinDivert mode flag
 
     // System tray
     QSystemTrayIcon* m_trayIcon;
@@ -85,6 +98,11 @@ private:
     void updateProxyConfig();
     void retranslateUi();
     void setupTrayIcon();
+
+    // WinDivert mode helpers
+    void startWinDivertMode();
+    void stopWinDivertMode();
+    void setupWinDivertConnections();
 
     // Settings save/load
     void loadSettings();

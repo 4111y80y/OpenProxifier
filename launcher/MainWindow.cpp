@@ -2,6 +2,7 @@
 #include "MainWindow.h"
 #include "ui_MainWindow.h"
 #include "ProcessMonitor.h"
+#include "ProxyEngineWrapper.h"
 #include "ProxyConfig.h"
 #include <QMessageBox>
 #include <QDir>
@@ -19,9 +20,11 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
     , m_monitor(new ProcessMonitor(this))
+    , m_engine(nullptr)
     , m_isChinese(false)
     , m_settings(new QSettings("OpenProxifier", "MiniProxifier", this))
     , m_serverConnected(false)
+    , m_winDivertMode(true)  // Default to WinDivert mode
     , m_trayIcon(nullptr)
     , m_trayMenu(nullptr)
     , m_showAction(nullptr)
@@ -32,6 +35,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Setup system tray
     setupTrayIcon();
+
+    // Setup WinDivert engine connections
+    setupWinDivertConnections();
 
     // Setup language selector
     ui->languageCombo->addItem("English", "en");
@@ -414,6 +420,13 @@ void MainWindow::onStartMonitorClicked()
         return;
     }
 
+    // Use WinDivert mode by default (system-wide packet interception)
+    if (m_winDivertMode) {
+        startWinDivertMode();
+        return;
+    }
+
+    // Legacy DLL injection mode
     if (ui->exeListWidget->count() == 0) {
         QMessageBox::warning(this,
             tr_log("No Targets", QStringLiteral("无目标")),
@@ -447,7 +460,11 @@ void MainWindow::onStartMonitorClicked()
 
 void MainWindow::onStopMonitorClicked()
 {
-    m_monitor->stopMonitoring();
+    if (m_winDivertMode) {
+        stopWinDivertMode();
+    } else {
+        m_monitor->stopMonitoring();
+    }
 }
 
 void MainWindow::onProcessDetected(const QString& exeName, unsigned long processId)
@@ -1047,4 +1064,123 @@ void MainWindow::bringToFront()
     raise();
 }
 
+// ============================================
+// WinDivert Mode Implementation
+// ============================================
 
+void MainWindow::setupWinDivertConnections()
+{
+    m_engine = ProxyEngineWrapper::instance();
+
+    connect(m_engine, &ProxyEngineWrapper::logMessage,
+            this, &MainWindow::onEngineLogMessage);
+    connect(m_engine, &ProxyEngineWrapper::connectionDetected,
+            this, &MainWindow::onEngineConnectionDetected);
+    connect(m_engine, &ProxyEngineWrapper::engineStarted,
+            this, &MainWindow::onEngineStarted);
+    connect(m_engine, &ProxyEngineWrapper::engineStopped,
+            this, &MainWindow::onEngineStopped);
+    connect(m_engine, &ProxyEngineWrapper::error,
+            this, &MainWindow::onEngineError);
+}
+
+void MainWindow::onWinDivertModeChanged(int state)
+{
+    m_winDivertMode = (state == Qt::Checked);
+    appendLog(tr_log(
+        m_winDivertMode ? "Switched to WinDivert mode (system-wide)" : "Switched to DLL injection mode (per-process)",
+        m_winDivertMode ? QStringLiteral("已切换到 WinDivert 模式 (系统级)") : QStringLiteral("已切换到 DLL 注入模式 (进程级)")
+    ));
+}
+
+void MainWindow::onEngineLogMessage(const QString& message)
+{
+    appendLog(message);
+}
+
+void MainWindow::onEngineConnectionDetected(const QString& process, uint32_t pid,
+                                             const QString& destIp, uint16_t destPort,
+                                             const QString& status)
+{
+    QString msg = QString("[%1] %2 (PID:%3) -> %4:%5 [%6]")
+        .arg(QDateTime::currentDateTime().toString("hh:mm:ss"))
+        .arg(process)
+        .arg(pid)
+        .arg(destIp)
+        .arg(destPort)
+        .arg(status);
+    appendLog(msg);
+}
+
+void MainWindow::onEngineStarted()
+{
+    ui->startMonitorButton->setEnabled(false);
+    ui->stopMonitorButton->setEnabled(true);
+    updateStatus(tr_log("WinDivert engine running", QStringLiteral("WinDivert 引擎运行中")));
+    appendLog(tr_log("[SUCCESS] WinDivert engine started", QStringLiteral("[成功] WinDivert 引擎已启动")));
+}
+
+void MainWindow::onEngineStopped()
+{
+    ui->startMonitorButton->setEnabled(true);
+    ui->stopMonitorButton->setEnabled(false);
+    updateStatus(tr_log("Stopped", QStringLiteral("已停止")));
+    appendLog(tr_log("[INFO] WinDivert engine stopped", QStringLiteral("[信息] WinDivert 引擎已停止")));
+}
+
+void MainWindow::onEngineError(const QString& message)
+{
+    appendLog(QString("[ERROR] %1").arg(message));
+    QMessageBox::critical(this,
+        tr_log("Engine Error", QStringLiteral("引擎错误")),
+        message);
+}
+
+void MainWindow::startWinDivertMode()
+{
+    if (!m_engine) {
+        m_engine = ProxyEngineWrapper::instance();
+        setupWinDivertConnections();
+    }
+
+    // Initialize engine
+    if (!m_engine->init()) {
+        return;
+    }
+
+    // Set proxy configuration
+    QString host = ui->proxyHostEdit->text().trimmed();
+    int port = ui->proxyPortSpin->value();
+    QString username = ui->authCheckBox->isChecked() ? ui->usernameEdit->text() : QString();
+    QString password = ui->authCheckBox->isChecked() ? ui->passwordEdit->text() : QString();
+
+    if (!m_engine->setProxy(PROXY_TYPE_SOCKS5, host, port, username, password)) {
+        return;
+    }
+
+    // Clear existing rules and add new ones based on exe list
+    m_engine->clearRules();
+
+    if (ui->exeListWidget->count() == 0) {
+        // No specific targets, proxy all traffic
+        m_engine->addRule("*", "*", "*", RULE_PROTOCOL_BOTH, RULE_ACTION_PROXY);
+        appendLog(tr_log("[INFO] No specific targets, proxying all traffic",
+                         QStringLiteral("[信息] 未指定目标程序，代理所有流量")));
+    } else {
+        // Add rules for each target process
+        for (int i = 0; i < ui->exeListWidget->count(); ++i) {
+            QString exeName = ui->exeListWidget->item(i)->text();
+            m_engine->addRule(exeName, "*", "*", RULE_PROTOCOL_BOTH, RULE_ACTION_PROXY);
+        }
+    }
+
+    // Start engine
+    m_engine->start();
+}
+
+void MainWindow::stopWinDivertMode()
+{
+    if (m_engine && m_engine->isRunning()) {
+        m_engine->stop();
+    }
+}

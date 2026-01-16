@@ -8,13 +8,21 @@ qt_add_executable(MiniProxifier
     Injector.h
     ProcessMonitor.cpp
     ProcessMonitor.h
+    ProxyEngineWrapper.cpp
+    ProxyEngineWrapper.h
     resources/resources.qrc
     resources/app.rc
+)
+
+# Include core headers
+target_include_directories(MiniProxifier PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../core
 )
 
 # Link dependencies
 target_link_libraries(MiniProxifier PRIVATE
     MiniProxifierCommon
+    ProxyEngineCore
     Qt6::Core
     Qt6::Widgets
     Qt6::Network
@@ -22,6 +30,7 @@ target_link_libraries(MiniProxifier PRIVATE
     kernel32
     psapi
     wbemuuid
+    iphlpapi
 )
 
 # Set Windows GUI application with admin privileges
@@ -56,6 +65,18 @@ add_custom_command(TARGET MiniProxifier POST_BUILD
         $<TARGET_FILE:MiniProxifierHook>
         $<TARGET_FILE_DIR:MiniProxifier>
     COMMENT "Copying MiniProxifierHook DLL..."
+)
+
+# Copy WinDivert files to output directory
+set(WINDIVERT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../windivert")
+add_custom_command(TARGET MiniProxifier POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${WINDIVERT_DIR}/x64/WinDivert.dll"
+        $<TARGET_FILE_DIR:MiniProxifier>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${WINDIVERT_DIR}/x64/WinDivert64.sys"
+        $<TARGET_FILE_DIR:MiniProxifier>
+    COMMENT "Copying WinDivert files..."
 )
 
 # Copy Hook DLL for ProxifierInjector too
