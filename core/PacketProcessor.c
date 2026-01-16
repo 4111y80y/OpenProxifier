@@ -71,32 +71,44 @@ DWORD PacketProcessor_GetProcessFromTcp(uint32_t src_ip, uint16_t src_port) {
     DWORD size = 0;
     DWORD pid = 0;
 
-    if (GetExtendedTcpTable(NULL, &size, FALSE, AF_INET,
-                            TCP_TABLE_OWNER_PID_ALL, 0) != ERROR_INSUFFICIENT_BUFFER) {
-        return 0;
-    }
-
-    tcp_table = (MIB_TCPTABLE_OWNER_PID*)malloc(size);
-    if (tcp_table == NULL) {
-        return 0;
-    }
-
-    if (GetExtendedTcpTable(tcp_table, &size, FALSE, AF_INET,
-                            TCP_TABLE_OWNER_PID_ALL, 0) != NO_ERROR) {
-        free(tcp_table);
-        return 0;
-    }
-
-    for (DWORD i = 0; i < tcp_table->dwNumEntries; i++) {
-        MIB_TCPROW_OWNER_PID* row = &tcp_table->table[i];
-        if (row->dwLocalAddr == src_ip &&
-            ntohs((UINT16)row->dwLocalPort) == src_port) {
-            pid = row->dwOwningPid;
-            break;
+    // Retry mechanism for newly started processes
+    // TCP table may not be immediately updated when a new process starts
+    for (int retry = 0; retry < 3 && pid == 0; retry++) {
+        if (retry > 0) {
+            Sleep(1);  // Brief delay before retry
         }
+
+        size = 0;
+        if (GetExtendedTcpTable(NULL, &size, FALSE, AF_INET,
+                                TCP_TABLE_OWNER_PID_ALL, 0) != ERROR_INSUFFICIENT_BUFFER) {
+            continue;
+        }
+
+        tcp_table = (MIB_TCPTABLE_OWNER_PID*)malloc(size);
+        if (tcp_table == NULL) {
+            continue;
+        }
+
+        if (GetExtendedTcpTable(tcp_table, &size, FALSE, AF_INET,
+                                TCP_TABLE_OWNER_PID_ALL, 0) != NO_ERROR) {
+            free(tcp_table);
+            tcp_table = NULL;
+            continue;
+        }
+
+        for (DWORD i = 0; i < tcp_table->dwNumEntries; i++) {
+            MIB_TCPROW_OWNER_PID* row = &tcp_table->table[i];
+            if (row->dwLocalAddr == src_ip &&
+                ntohs((UINT16)row->dwLocalPort) == src_port) {
+                pid = row->dwOwningPid;
+                break;
+            }
+        }
+
+        free(tcp_table);
+        tcp_table = NULL;
     }
 
-    free(tcp_table);
     return pid;
 }
 
@@ -105,45 +117,56 @@ DWORD PacketProcessor_GetProcessFromUdp(uint32_t src_ip, uint16_t src_port) {
     DWORD size = 0;
     DWORD pid = 0;
 
-    if (GetExtendedUdpTable(NULL, &size, FALSE, AF_INET,
-                            UDP_TABLE_OWNER_PID, 0) != ERROR_INSUFFICIENT_BUFFER) {
-        return 0;
-    }
-
-    udp_table = (MIB_UDPTABLE_OWNER_PID*)malloc(size);
-    if (udp_table == NULL) {
-        return 0;
-    }
-
-    if (GetExtendedUdpTable(udp_table, &size, FALSE, AF_INET,
-                            UDP_TABLE_OWNER_PID, 0) != NO_ERROR) {
-        free(udp_table);
-        return 0;
-    }
-
-    // First pass: exact match
-    for (DWORD i = 0; i < udp_table->dwNumEntries; i++) {
-        MIB_UDPROW_OWNER_PID* row = &udp_table->table[i];
-        if (row->dwLocalAddr == src_ip &&
-            ntohs((UINT16)row->dwLocalPort) == src_port) {
-            pid = row->dwOwningPid;
-            break;
+    // Retry mechanism for newly started processes
+    for (int retry = 0; retry < 3 && pid == 0; retry++) {
+        if (retry > 0) {
+            Sleep(1);  // Brief delay before retry
         }
-    }
 
-    // Second pass: match on 0.0.0.0
-    if (pid == 0) {
+        size = 0;
+        if (GetExtendedUdpTable(NULL, &size, FALSE, AF_INET,
+                                UDP_TABLE_OWNER_PID, 0) != ERROR_INSUFFICIENT_BUFFER) {
+            continue;
+        }
+
+        udp_table = (MIB_UDPTABLE_OWNER_PID*)malloc(size);
+        if (udp_table == NULL) {
+            continue;
+        }
+
+        if (GetExtendedUdpTable(udp_table, &size, FALSE, AF_INET,
+                                UDP_TABLE_OWNER_PID, 0) != NO_ERROR) {
+            free(udp_table);
+            udp_table = NULL;
+            continue;
+        }
+
+        // First pass: exact match
         for (DWORD i = 0; i < udp_table->dwNumEntries; i++) {
             MIB_UDPROW_OWNER_PID* row = &udp_table->table[i];
-            if (row->dwLocalAddr == 0 &&
+            if (row->dwLocalAddr == src_ip &&
                 ntohs((UINT16)row->dwLocalPort) == src_port) {
                 pid = row->dwOwningPid;
                 break;
             }
         }
+
+        // Second pass: match on 0.0.0.0
+        if (pid == 0) {
+            for (DWORD i = 0; i < udp_table->dwNumEntries; i++) {
+                MIB_UDPROW_OWNER_PID* row = &udp_table->table[i];
+                if (row->dwLocalAddr == 0 &&
+                    ntohs((UINT16)row->dwLocalPort) == src_port) {
+                    pid = row->dwOwningPid;
+                    break;
+                }
+            }
+        }
+
+        free(udp_table);
+        udp_table = NULL;
     }
 
-    free(udp_table);
     return pid;
 }
 
