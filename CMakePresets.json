@@ -10,6 +10,18 @@
       }
     },
     {
+      "name": "qt-unified",
+      "displayName": "Qt Creator Unified",
+      "description": "Unified build directory for Qt Creator and command line",
+      "inherits": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
       "name": "x64-debug",
       "displayName": "x64 Debug",
       "description": "64-bit Debug build",
@@ -59,6 +71,10 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "qt-unified",
+      "configurePreset": "qt-unified"
+    },
     {
       "name": "x64-debug",
       "configurePreset": "x64-debug"
