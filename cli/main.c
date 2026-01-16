@@ -170,6 +170,14 @@ static int parse_rule(const char* rule_str) {
 }
 
 int main(int argc, char* argv[]) {
+    // Check for help flag first (before admin check)
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        }
+    }
+
     // Check admin privileges
     BOOL is_admin = FALSE;
     PSID admin_group = NULL;
