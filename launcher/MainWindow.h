@@ -68,6 +68,7 @@ private slots:
     void onTestServerClicked();
     void onProxySettingsChanged();
     void onTestCompleted(bool success, const QString& message, const QString& statusText, const QString& statusColor);
+    void onCountdownUpdate();  // Update countdown display
 
     // Launch test app
     void onLaunchTestAppClicked();
@@ -85,6 +86,8 @@ private:
     bool m_serverConnected;  // Track if server is reachable
     bool m_winDivertMode;    // WinDivert mode flag
     ConnectionTestThread* m_testThread;  // Thread for connection testing
+    QTimer* m_countdownTimer;  // Timer for connection test countdown
+    int m_remainingSeconds;    // Remaining seconds for connection test
 
     // System tray
     QSystemTrayIcon* m_trayIcon;

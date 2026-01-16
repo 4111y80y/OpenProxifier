@@ -27,6 +27,8 @@ MainWindow::MainWindow(QWidget *parent)
     , m_serverConnected(false)
     , m_winDivertMode(true)  // Default to WinDivert mode
     , m_testThread(nullptr)
+    , m_countdownTimer(new QTimer(this))
+    , m_remainingSeconds(0)
     , m_trayIcon(nullptr)
     , m_trayMenu(nullptr)
     , m_showAction(nullptr)
@@ -34,6 +36,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_forceQuit(false)
 {
     ui->setupUi(this);
+
+    // Setup countdown timer
+    connect(m_countdownTimer, &QTimer::timeout, this, &MainWindow::onCountdownUpdate);
 
     // Setup system tray
     setupTrayIcon();
@@ -790,10 +795,15 @@ void MainWindow::onTestServerClicked()
 
     int port = ui->proxyPortSpin->value();
 
-    // Show testing status
-    ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试中...")));
+    // Show testing status with countdown
+    m_remainingSeconds = 10;
+    ui->connectionStatusLabel->setText(tr_log(QString("Testing... (%1s)").arg(m_remainingSeconds),
+                                               QStringLiteral("测试中... (%1秒)").arg(m_remainingSeconds)));
     ui->connectionStatusLabel->setStyleSheet("color: blue;");
     ui->testServerButton->setEnabled(false);
+
+    // Start countdown timer (update every second)
+    m_countdownTimer->start(1000);
 
     appendLog(tr_log(QString("Testing connection to %1:%2%3...").arg(host).arg(port).arg(authRequired ? " (with auth)" : ""),
                      QStringLiteral("测试连接 %1:%2%3...").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (带认证)") : "")));
@@ -816,6 +826,9 @@ void MainWindow::onTestServerClicked()
 
 void MainWindow::onTestCompleted(bool success, const QString& message, const QString& statusText, const QString& statusColor)
 {
+    // Stop countdown timer
+    m_countdownTimer->stop();
+
     // Update connection status
     m_serverConnected = success;
     ui->connectionStatusLabel->setText(statusText);
@@ -831,6 +844,18 @@ void MainWindow::onTestCompleted(bool success, const QString& message, const QSt
     bool isCurrentlyMonitoring = (m_engine && m_engine->isRunning()) || m_monitor->isMonitoring();
     if (!isCurrentlyMonitoring) {
         ui->startMonitorButton->setEnabled(success);
+    }
+}
+
+void MainWindow::onCountdownUpdate()
+{
+    m_remainingSeconds--;
+    if (m_remainingSeconds > 0) {
+        ui->connectionStatusLabel->setText(tr_log(QString("Testing... (%1s)").arg(m_remainingSeconds),
+                                                   QStringLiteral("测试中... (%1秒)").arg(m_remainingSeconds)));
+    } else {
+        // Timer will be stopped by onTestCompleted
+        ui->connectionStatusLabel->setText(tr_log("Testing...", QStringLiteral("测试中...")));
     }
 }
 

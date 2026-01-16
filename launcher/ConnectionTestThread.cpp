@@ -38,10 +38,9 @@ void ConnectionTestThread::run()
         return;
     }
 
-    // Set timeout (10 seconds)
-    DWORD timeout = 10000;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
+    // Set socket to non-blocking mode for connect timeout
+    u_long mode = 1;
+    ioctlsocket(sock, FIONBIO, &mode);
 
     // Connect to proxy server
     sockaddr_in proxyAddr;
@@ -50,16 +49,76 @@ void ConnectionTestThread::run()
     proxyAddr.sin_port = htons(static_cast<uint16_t>(m_port));
 
     int result = ::connect(sock, reinterpret_cast<sockaddr*>(&proxyAddr), sizeof(proxyAddr));
+
+    // For non-blocking socket, connect returns SOCKET_ERROR with WSAEWOULDBLOCK
     if (result == SOCKET_ERROR) {
-        closesocket(sock);
-        QString msg = m_isChinese ?
-            QStringLiteral("[错误] 无法连接 %1:%2").arg(m_host).arg(m_port) :
-            QString("[ERROR] Cannot connect to %1:%2").arg(m_host).arg(m_port);
-        QString statusText = m_isChinese ? QStringLiteral("连接失败") : "Connection failed";
-        emit testCompleted(false, msg, statusText, "red");
-        WSACleanup();
-        return;
+        int error = WSAGetLastError();
+        if (error != WSAEWOULDBLOCK) {
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 无法连接 %1:%2").arg(m_host).arg(m_port) :
+                QString("[ERROR] Cannot connect to %1:%2").arg(m_host).arg(m_port);
+            QString statusText = m_isChinese ? QStringLiteral("连接失败") : "Connection failed";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Wait for connection with 10 second timeout
+        fd_set writefds;
+        FD_ZERO(&writefds);
+        FD_SET(sock, &writefds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 10;
+        timeout.tv_usec = 0;
+
+        result = select(0, NULL, &writefds, NULL, &timeout);
+        if (result == 0) {
+            // Timeout
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 连接超时 %1:%2 (10秒)").arg(m_host).arg(m_port) :
+                QString("[ERROR] Connection timeout to %1:%2 (10 seconds)").arg(m_host).arg(m_port);
+            QString statusText = m_isChinese ? QStringLiteral("连接超时") : "Connection timeout";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        } else if (result == SOCKET_ERROR) {
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 无法连接 %1:%2").arg(m_host).arg(m_port) :
+                QString("[ERROR] Cannot connect to %1:%2").arg(m_host).arg(m_port);
+            QString statusText = m_isChinese ? QStringLiteral("连接失败") : "Connection failed";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
+
+        // Check if connection succeeded
+        int optval;
+        int optlen = sizeof(optval);
+        getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&optval, &optlen);
+        if (optval != 0) {
+            closesocket(sock);
+            QString msg = m_isChinese ?
+                QStringLiteral("[错误] 无法连接 %1:%2").arg(m_host).arg(m_port) :
+                QString("[ERROR] Cannot connect to %1:%2").arg(m_host).arg(m_port);
+            QString statusText = m_isChinese ? QStringLiteral("连接失败") : "Connection failed";
+            emit testCompleted(false, msg, statusText, "red");
+            WSACleanup();
+            return;
+        }
     }
+
+    // Set socket back to blocking mode
+    mode = 0;
+    ioctlsocket(sock, FIONBIO, &mode);
+
+    // Set timeout for send/recv operations (10 seconds)
+    DWORD ioTimeout = 10000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&ioTimeout, sizeof(ioTimeout));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ioTimeout, sizeof(ioTimeout));
 
     // SOCKS5 handshake
     uint8_t greeting[4];
