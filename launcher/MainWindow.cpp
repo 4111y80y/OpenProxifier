@@ -1102,6 +1102,11 @@ void MainWindow::onEngineConnectionDetected(const QString& process, uint32_t pid
                                              const QString& destIp, uint16_t destPort,
                                              const QString& status)
 {
+    // Skip DIRECT connections to reduce log noise
+    if (status.startsWith("DIRECT")) {
+        return;
+    }
+
     QString msg = QString("[%1] %2 (PID:%3) -> %4:%5 [%6]")
         .arg(QDateTime::currentDateTime().toString("hh:mm:ss"))
         .arg(process)
