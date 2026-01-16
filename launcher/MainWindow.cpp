@@ -125,23 +125,19 @@ MainWindow::MainWindow(QWidget *parent)
 
     updateStatus(tr_log("Ready", QStringLiteral("就绪")));
 
-    // Auto-test connection on startup, then auto-start if enabled
-    QTimer::singleShot(500, this, [this]() {
-        onTestServerClicked();
-        if (ui->autoStartCheckBox->isChecked()) {
+    // Only auto-test and auto-start if autoStart is enabled
+    // Don't auto-test on startup - user's machine may not have our default proxy
+    if (ui->autoStartCheckBox->isChecked()) {
+        QTimer::singleShot(500, this, [this]() {
+            onTestServerClicked();
             if (m_serverConnected) {
                 onStartMonitorClicked();
             } else {
-                // Show error when auto-start is enabled but connection failed
                 appendLog(tr_log("[WARNING] Auto-start failed: SOCKS5 server unreachable",
                                  QStringLiteral("[警告] 自动启动失败: SOCKS5 服务器不可达")));
-                QMessageBox::warning(this,
-                    tr_log("Auto-start Failed", QStringLiteral("自动启动失败")),
-                    tr_log("Cannot auto-start monitoring: SOCKS5 proxy server is unreachable. Please check your proxy settings.",
-                           QStringLiteral("无法自动启动监控: SOCKS5 代理服务器不可达。请检查代理设置。")));
             }
-        }
-    });
+        });
+    }
 }
 
 MainWindow::~MainWindow()
@@ -433,6 +429,22 @@ void MainWindow::onStartMonitorClicked()
 {
     if (!validateProxySettings()) {
         return;
+    }
+
+    // Test connection first before starting monitoring
+    if (!m_serverConnected) {
+        appendLog(tr_log("Testing connection before starting...",
+                         QStringLiteral("启动前测试连接...")));
+        onTestServerClicked();
+
+        // Check if connection succeeded
+        if (!m_serverConnected) {
+            QMessageBox::warning(this,
+                tr_log("Connection Failed", QStringLiteral("连接失败")),
+                tr_log("Cannot start monitoring: SOCKS5 proxy server is unreachable. Please check your proxy settings and try again.",
+                       QStringLiteral("无法启动监控: SOCKS5 代理服务器不可达。请检查代理设置后重试。")));
+            return;
+        }
     }
 
     // Use WinDivert mode by default (system-wide packet interception)
@@ -800,8 +812,8 @@ void MainWindow::onTestServerClicked()
         return;
     }
 
-    // Set timeout (3 seconds)
-    DWORD timeout = 3000;
+    // Set timeout (10 seconds)
+    DWORD timeout = 10000;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof(timeout));
 
