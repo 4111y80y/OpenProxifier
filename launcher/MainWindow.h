@@ -7,7 +7,6 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QCloseEvent>
-#include <QThread>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }

@@ -4,6 +4,8 @@ qt_add_executable(MiniProxifier
     MainWindow.cpp
     MainWindow.h
     MainWindow.ui
+    ConnectionTestThread.cpp
+    ConnectionTestThread.h
     Injector.cpp
     Injector.h
     ProcessMonitor.cpp
