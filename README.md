@@ -2,20 +2,48 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-A Windows transparent SOCKS5 proxy injector that routes all TCP connections of target applications through a SOCKS5 proxy without modifying the target program or system proxy settings.
+A Windows transparent SOCKS5 proxy tool that routes network connections of target applications through a SOCKS5 proxy without modifying the target program or system proxy settings.
 
 ## Features
 
-- **Transparent Proxy Injection**: Inject into any Windows executable and route all its TCP connections through SOCKS5 proxy
-- **Process Monitoring**: Automatically detect and inject into target processes when they start
-- **Child Process Propagation**: Automatically propagate proxy settings to child processes
+- **Two Proxy Modes**:
+  - **WinDivert Mode**: Kernel-level packet interception for true transparent proxy (recommended)
+  - **DLL Injection Mode**: Hook Winsock APIs via DLL injection for legacy compatibility
+- **Rule-Based Routing**: Configure per-application rules (PROXY / DIRECT / BLOCK)
+- **Process Monitoring**: Automatically detect and proxy target processes when they start
 - **SOCKS5 Authentication**: Full support for username/password authentication (RFC 1929)
 - **Connection Testing**: Test proxy server connectivity and authentication before starting
 - **Server History**: Save and manage multiple proxy server configurations
+- **System Tray**: Minimize to system tray with quick access menu
+- **Built-in Test Tool**: ProxyTestApp for verifying proxy functionality
 - **Bilingual Interface**: Full English and Chinese UI support
-- **32-bit and 64-bit Support**: Works with both x86 and x64 applications
 
 ## How It Works
+
+### WinDivert Mode (Recommended)
+
+```
+OpenProxifier (Qt GUI)
+        |
+        | WinDivert kernel driver
+        v
+Network Packets <---> PacketProcessor
+        |
+        | NAT redirect to LocalProxy
+        v
+LocalProxy (TCP:34010)
+        |
+        | SOCKS5 tunnel
+        v
+SOCKS5 Proxy Server
+        |
+        v
+    Internet
+```
+
+WinDivert mode intercepts network packets at the kernel level using the WinDivert driver. Packets from monitored applications are redirected to a local proxy which tunnels them through the SOCKS5 proxy. This provides true transparent proxying without modifying target applications.
+
+### DLL Injection Mode
 
 ```
 OpenProxifier (Qt GUI)
@@ -26,20 +54,20 @@ TargetApp.exe
         |
         | Hook Winsock APIs
         v
-MiniProxifierHook.dll
+OpenProxifierHook.dll
         |
         | Redirect connections
         v
 SOCKS5 Proxy Server
 ```
 
-The application uses DLL injection and API hooking (via Microsoft Detours) to intercept Winsock API calls (`connect`, `WSAConnect`, `CreateProcessW`) and transparently redirect TCP connections through the configured SOCKS5 proxy.
+DLL injection mode uses Microsoft Detours to hook Winsock API calls (`connect`, `WSAConnect`) and redirect TCP connections through the SOCKS5 proxy.
 
 ## Requirements
 
-- Windows 10/11
-- Visual Studio 2019 or later
-- Qt 6.x
+- Windows 10/11 (64-bit)
+- Administrator privileges (required for WinDivert)
+- Qt 6.x (for building)
 - CMake 3.20+
 - vcpkg (for Microsoft Detours)
 
@@ -47,30 +75,34 @@ The application uses DLL injection and API hooking (via Microsoft Detours) to in
 
 1. **Install dependencies via vcpkg**:
    ```batch
-   vcpkg install detours:x64-windows detours:x86-windows
+   vcpkg install detours:x64-windows
    ```
 
-2. **Build for 64-bit**:
+2. **Configure and build**:
    ```batch
-   cmake -B build_x64 -A x64 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-   cmake --build build_x64 --config Release
+   cmake -B build -A x64 -DCMAKE_PREFIX_PATH=C:/Qt/6.x/msvc2022_64 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+   cmake --build build --config Release
    ```
 
-3. **Build for 32-bit**:
-   ```batch
-   cmake -B build_x86 -A Win32 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-   cmake --build build_x86 --config Release
-   ```
+3. **Output files** are in `build/bin/Release/`:
+   - `OpenProxifier_x64.exe` - Main GUI application
+   - `OpenProxifierHook_x64.dll` - Hook DLL for injection mode
+   - `ProxyTestApp.exe` - Proxy testing tool
+   - `WinDivert64.sys` / `WinDivert.dll` - WinDivert driver and library
 
 ## Usage
 
 ### GUI Mode
 
-1. Launch `MiniProxifier_x64.exe` or `MiniProxifier_x86.exe`
+1. Launch `OpenProxifier_x64.exe` **as Administrator**
 2. Configure SOCKS5 proxy settings (server, port, optional authentication)
 3. Click "Test Connection" to verify proxy connectivity
-4. Add target process names to the monitoring list
-5. Click "Start Monitoring" to begin auto-injection
+4. Add target process names to the rule list with desired action:
+   - **PROXY**: Route through SOCKS5 proxy
+   - **DIRECT**: Allow direct connection (bypass proxy)
+   - **BLOCK**: Block all connections
+5. Click "Start Monitoring" to begin transparent proxying
+6. Use "Launch Test App" to verify proxy is working
 
 ### Command Line Mode
 
@@ -96,20 +128,36 @@ OpenProxifier/
 │   ├── MainWindow.*    # Main window UI and logic
 │   ├── ProcessMonitor.*# Process detection and injection
 │   ├── Injector.*      # DLL injection implementation
-│   └── ProxifierInjector.cpp  # CLI injector
-├── hookdll/            # Injected DLL
+│   └── ProxyEngineWrapper.*  # C++/C bridge for core engine
+├── core/               # WinDivert transparent proxy engine (C)
+│   ├── ProxyEngine.*   # Main engine interface
+│   ├── PacketProcessor.* # Packet interception and NAT
+│   ├── LocalProxy.*    # Local SOCKS5 tunnel proxy
+│   ├── RuleEngine.*    # Per-application routing rules
+│   ├── ConnectionTracker.* # NAT connection tracking
+│   ├── Socks5.*        # SOCKS5 protocol implementation
+│   └── UdpRelay.*      # UDP relay support
+├── hookdll/            # Injected DLL for injection mode
 │   ├── HookManager.*   # Hook installation/removal
 │   ├── WinsockHooks.*  # Winsock API hooks
 │   └── Socks5Client.*  # SOCKS5 protocol implementation
+├── proxytestapp/       # Proxy test application
 ├── common/             # Shared headers
 │   ├── ProxyConfig.h   # Proxy configuration structure
 │   └── SharedMemory.h  # IPC via shared memory
-└── docs/               # Documentation
+└── cli/                # Command line tools
 ```
 
 ## Technical Details
 
-### Hooked APIs
+### WinDivert Mode
+
+- Uses WinDivert 2.2 for kernel-level packet capture
+- Implements bidirectional NAT for transparent redirection
+- LocalProxy listens on TCP port 34010
+- Supports per-process rule matching via PID tracking
+
+### Hooked APIs (Injection Mode)
 
 | DLL | Function | Purpose |
 |-----|----------|---------|
@@ -124,14 +172,13 @@ OpenProxifier/
 - No authentication (0x00)
 - Username/password authentication (0x02, RFC 1929)
 - CONNECT command for TCP connections
-- IPv4 address type
+- IPv4 and IPv6 address support
 
 ## Known Limitations
 
-- Only TCP connections are proxied (UDP not supported)
-- Only IPv4 addresses are currently supported
-- Some applications with anti-debugging features may not work
-- Requires administrator privileges for some target applications
+- WinDivert mode requires Administrator privileges
+- Some applications with anti-debugging features may not work with injection mode
+- UDP proxying is experimental
 
 ## License
 
@@ -143,5 +190,6 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## Acknowledgments
 
+- [WinDivert](https://github.com/basil00/WinDivert) - Windows packet capture/modification library
 - [Microsoft Detours](https://github.com/microsoft/Detours) - API hooking library
 - [Qt Framework](https://www.qt.io/) - GUI framework
