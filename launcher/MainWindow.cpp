@@ -725,13 +725,18 @@ void MainWindow::retranslateUi()
 
 void MainWindow::onTestServerClicked()
 {
+    // Check if currently monitoring - don't change button state if so
+    bool isCurrentlyMonitoring = (m_engine && m_engine->isRunning()) || m_monitor->isMonitoring();
+
     QString host = ui->proxyHostEdit->text().trimmed();
     if (host.isEmpty()) {
         ui->connectionStatusLabel->setText(tr_log("Please enter server address",
                                                    QStringLiteral("请输入服务器地址")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) {
+            ui->startMonitorButton->setEnabled(false);
+        }
         return;
     }
 
@@ -742,7 +747,9 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("无效的IP地址")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) {
+            ui->startMonitorButton->setEnabled(false);
+        }
         return;
     }
 
@@ -756,7 +763,9 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("需要用户名")));
         ui->connectionStatusLabel->setStyleSheet("color: orange;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) {
+            ui->startMonitorButton->setEnabled(false);
+        }
         return;
     }
 
@@ -782,7 +791,9 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("套接字错误")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) {
+            ui->startMonitorButton->setEnabled(false);
+        }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Failed to create socket",
                          QStringLiteral("[错误] 创建套接字失败")));
@@ -807,7 +818,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("连接失败")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log(QString("[ERROR] Cannot connect to %1:%2").arg(host).arg(port),
                          QStringLiteral("[错误] 无法连接 %1:%2").arg(host).arg(port)));
@@ -837,7 +848,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("握手失败")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] SOCKS5 handshake send failed",
                          QStringLiteral("[错误] SOCKS5 握手发送失败")));
@@ -854,7 +865,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("非SOCKS5服务器")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Server is not a valid SOCKS5 proxy",
                          QStringLiteral("[错误] 服务器不是有效的SOCKS5代理")));
@@ -868,7 +879,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("无可用认证方式")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log("[ERROR] Server rejected all authentication methods",
                          QStringLiteral("[错误] 服务器拒绝了所有认证方式")));
@@ -883,7 +894,7 @@ void MainWindow::onTestServerClicked()
                                                        QStringLiteral("服务器需要认证")));
             ui->connectionStatusLabel->setStyleSheet("color: orange;");
             m_serverConnected = false;
-            ui->startMonitorButton->setEnabled(false);
+            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
             ui->testServerButton->setEnabled(true);
             appendLog(tr_log("[ERROR] Server requires authentication but none provided",
                              QStringLiteral("[错误] 服务器需要认证但未提供")));
@@ -900,7 +911,7 @@ void MainWindow::onTestServerClicked()
                                                        QStringLiteral("凭证过长")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
-            ui->startMonitorButton->setEnabled(false);
+            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
             ui->testServerButton->setEnabled(true);
             return;
         }
@@ -920,7 +931,7 @@ void MainWindow::onTestServerClicked()
                                                        QStringLiteral("认证发送失败")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
-            ui->startMonitorButton->setEnabled(false);
+            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
             ui->testServerButton->setEnabled(true);
             return;
         }
@@ -934,7 +945,7 @@ void MainWindow::onTestServerClicked()
                                                        QStringLiteral("认证响应错误")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
-            ui->startMonitorButton->setEnabled(false);
+            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
             ui->testServerButton->setEnabled(true);
             return;
         }
@@ -945,7 +956,7 @@ void MainWindow::onTestServerClicked()
                                                        QStringLiteral("认证失败 (密码错误)")));
             ui->connectionStatusLabel->setStyleSheet("color: red;");
             m_serverConnected = false;
-            ui->startMonitorButton->setEnabled(false);
+            if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
             ui->testServerButton->setEnabled(true);
             appendLog(tr_log("[ERROR] Authentication failed - wrong username or password",
                              QStringLiteral("[错误] 认证失败 - 用户名或密码错误")));
@@ -960,7 +971,7 @@ void MainWindow::onTestServerClicked()
                                                    QStringLiteral("不支持的认证方式")));
         ui->connectionStatusLabel->setStyleSheet("color: red;");
         m_serverConnected = false;
-        ui->startMonitorButton->setEnabled(false);
+        if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(false); }
         ui->testServerButton->setEnabled(true);
         appendLog(tr_log(QString("[ERROR] Unsupported auth method: 0x%1").arg(response[1], 2, 16, QChar('0')),
                          QStringLiteral("[错误] 不支持的认证方式: 0x%1").arg(response[1], 2, 16, QChar('0'))));
@@ -976,7 +987,7 @@ void MainWindow::onTestServerClicked()
     ui->connectionStatusLabel->setText(statusText);
     ui->connectionStatusLabel->setStyleSheet("color: green; font-weight: bold;");
     m_serverConnected = true;
-    ui->startMonitorButton->setEnabled(true);
+    if (!isCurrentlyMonitoring) { ui->startMonitorButton->setEnabled(true); }
     ui->testServerButton->setEnabled(true);
     appendLog(tr_log(QString("[SUCCESS] SOCKS5 server %1:%2 is reachable%3").arg(host).arg(port).arg(authRequired ? " (authenticated)" : ""),
                      QStringLiteral("[成功] SOCKS5 服务器 %1:%2 可达%3").arg(host).arg(port).arg(authRequired ? QStringLiteral(" (已认证)") : "")));
