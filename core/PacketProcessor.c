@@ -18,6 +18,16 @@
 #define MAXBUF 0xFFFF
 #define PROCESS_CACHE_SIZE 256
 #define PROCESS_CACHE_TTL 5000  // 5 seconds TTL
+#define CONNECTION_CACHE_SIZE 512
+#define CONNECTION_CACHE_TTL 30000  // 30 seconds TTL for connections
+#define DECISION_CACHE_SIZE 1024
+#define DECISION_CACHE_TTL 60000  // 60 seconds TTL for decisions
+
+// Decision cache values
+#define DECISION_UNKNOWN 0
+#define DECISION_DIRECT 1
+#define DECISION_PROXY 2
+#define DECISION_BLOCK 3
 
 // Process name cache entry
 typedef struct {
@@ -27,7 +37,31 @@ typedef struct {
     bool valid;
 } ProcessCacheEntry;
 
+// Connection-PID cache entry (to avoid expensive GetExtendedTcpTable calls)
+typedef struct {
+    uint32_t src_ip;
+    uint16_t src_port;
+    uint8_t protocol;  // 6=TCP, 17=UDP
+    DWORD pid;
+    DWORD timestamp;
+    bool valid;
+} ConnectionCacheEntry;
+
+// Decision cache entry (to skip PID lookup for known connections)
+typedef struct {
+    uint32_t src_ip;
+    uint16_t src_port;
+    uint32_t dest_ip;
+    uint16_t dest_port;
+    uint8_t protocol;
+    uint8_t decision;  // DECISION_DIRECT, DECISION_PROXY, DECISION_BLOCK
+    DWORD timestamp;
+    bool valid;
+} DecisionCacheEntry;
+
 static ProcessCacheEntry g_process_cache[PROCESS_CACHE_SIZE];
+static ConnectionCacheEntry g_connection_cache[CONNECTION_CACHE_SIZE];
+static DecisionCacheEntry g_decision_cache[DECISION_CACHE_SIZE];
 static CRITICAL_SECTION g_cache_lock;
 static bool g_cache_initialized = false;
 
@@ -59,6 +93,8 @@ static void ProcessCache_Init(void) {
     if (g_cache_initialized) return;
     InitializeCriticalSection(&g_cache_lock);
     memset(g_process_cache, 0, sizeof(g_process_cache));
+    memset(g_connection_cache, 0, sizeof(g_connection_cache));
+    memset(g_decision_cache, 0, sizeof(g_decision_cache));
     g_cache_initialized = true;
 }
 
@@ -125,6 +161,149 @@ static void ProcessCache_Set(DWORD pid, const char* name) {
         strncpy(g_process_cache[empty_slot].name, name, sizeof(g_process_cache[empty_slot].name) - 1);
         g_process_cache[empty_slot].timestamp = GetTickCount();
         g_process_cache[empty_slot].valid = true;
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
+}
+
+// Connection cache functions (to avoid expensive GetExtendedTcpTable/UdpTable calls)
+static DWORD ConnectionCache_Get(uint32_t src_ip, uint16_t src_port, uint8_t protocol) {
+    if (!g_cache_initialized) return 0;
+
+    DWORD now = GetTickCount();
+    DWORD pid = 0;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    uint32_t hash = (src_ip ^ (src_port << 16) ^ protocol) % CONNECTION_CACHE_SIZE;
+    for (int i = 0; i < 8; i++) {  // Linear probing with limited search
+        int idx = (hash + i) % CONNECTION_CACHE_SIZE;
+        if (g_connection_cache[idx].valid &&
+            g_connection_cache[idx].src_ip == src_ip &&
+            g_connection_cache[idx].src_port == src_port &&
+            g_connection_cache[idx].protocol == protocol) {
+            // Check TTL
+            if (now - g_connection_cache[idx].timestamp < CONNECTION_CACHE_TTL) {
+                pid = g_connection_cache[idx].pid;
+            } else {
+                // Expired
+                g_connection_cache[idx].valid = false;
+            }
+            break;
+        }
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
+    return pid;
+}
+
+static void ConnectionCache_Set(uint32_t src_ip, uint16_t src_port, uint8_t protocol, DWORD pid) {
+    if (!g_cache_initialized || pid == 0) return;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    uint32_t hash = (src_ip ^ (src_port << 16) ^ protocol) % CONNECTION_CACHE_SIZE;
+    int empty_slot = -1;
+
+    for (int i = 0; i < 8; i++) {
+        int idx = (hash + i) % CONNECTION_CACHE_SIZE;
+        if (g_connection_cache[idx].valid &&
+            g_connection_cache[idx].src_ip == src_ip &&
+            g_connection_cache[idx].src_port == src_port &&
+            g_connection_cache[idx].protocol == protocol) {
+            // Update existing
+            g_connection_cache[idx].pid = pid;
+            g_connection_cache[idx].timestamp = GetTickCount();
+            LeaveCriticalSection(&g_cache_lock);
+            return;
+        }
+        if (!g_connection_cache[idx].valid && empty_slot < 0) {
+            empty_slot = idx;
+        }
+    }
+
+    // Insert new
+    if (empty_slot >= 0) {
+        g_connection_cache[empty_slot].src_ip = src_ip;
+        g_connection_cache[empty_slot].src_port = src_port;
+        g_connection_cache[empty_slot].protocol = protocol;
+        g_connection_cache[empty_slot].pid = pid;
+        g_connection_cache[empty_slot].timestamp = GetTickCount();
+        g_connection_cache[empty_slot].valid = true;
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
+}
+
+// Decision cache functions (to skip expensive processing for known connections)
+static uint8_t DecisionCache_Get(uint32_t src_ip, uint16_t src_port,
+                                  uint32_t dest_ip, uint16_t dest_port, uint8_t protocol) {
+    if (!g_cache_initialized) return DECISION_UNKNOWN;
+
+    DWORD now = GetTickCount();
+    uint8_t decision = DECISION_UNKNOWN;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    uint32_t hash = (src_ip ^ src_port ^ dest_ip ^ dest_port ^ protocol) % DECISION_CACHE_SIZE;
+    for (int i = 0; i < 8; i++) {
+        int idx = (hash + i) % DECISION_CACHE_SIZE;
+        if (g_decision_cache[idx].valid &&
+            g_decision_cache[idx].src_ip == src_ip &&
+            g_decision_cache[idx].src_port == src_port &&
+            g_decision_cache[idx].dest_ip == dest_ip &&
+            g_decision_cache[idx].dest_port == dest_port &&
+            g_decision_cache[idx].protocol == protocol) {
+            if (now - g_decision_cache[idx].timestamp < DECISION_CACHE_TTL) {
+                decision = g_decision_cache[idx].decision;
+            } else {
+                g_decision_cache[idx].valid = false;
+            }
+            break;
+        }
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
+    return decision;
+}
+
+static void DecisionCache_Set(uint32_t src_ip, uint16_t src_port,
+                               uint32_t dest_ip, uint16_t dest_port,
+                               uint8_t protocol, uint8_t decision) {
+    if (!g_cache_initialized) return;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    uint32_t hash = (src_ip ^ src_port ^ dest_ip ^ dest_port ^ protocol) % DECISION_CACHE_SIZE;
+    int empty_slot = -1;
+
+    for (int i = 0; i < 8; i++) {
+        int idx = (hash + i) % DECISION_CACHE_SIZE;
+        if (g_decision_cache[idx].valid &&
+            g_decision_cache[idx].src_ip == src_ip &&
+            g_decision_cache[idx].src_port == src_port &&
+            g_decision_cache[idx].dest_ip == dest_ip &&
+            g_decision_cache[idx].dest_port == dest_port &&
+            g_decision_cache[idx].protocol == protocol) {
+            g_decision_cache[idx].decision = decision;
+            g_decision_cache[idx].timestamp = GetTickCount();
+            LeaveCriticalSection(&g_cache_lock);
+            return;
+        }
+        if (!g_decision_cache[idx].valid && empty_slot < 0) {
+            empty_slot = idx;
+        }
+    }
+
+    if (empty_slot >= 0) {
+        g_decision_cache[empty_slot].src_ip = src_ip;
+        g_decision_cache[empty_slot].src_port = src_port;
+        g_decision_cache[empty_slot].dest_ip = dest_ip;
+        g_decision_cache[empty_slot].dest_port = dest_port;
+        g_decision_cache[empty_slot].protocol = protocol;
+        g_decision_cache[empty_slot].decision = decision;
+        g_decision_cache[empty_slot].timestamp = GetTickCount();
+        g_decision_cache[empty_slot].valid = true;
     }
 
     LeaveCriticalSection(&g_cache_lock);
@@ -358,7 +537,6 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
         // Extract connection info
         uint16_t src_port = 0, dest_port = 0;
         uint32_t src_ip = 0, dest_ip = 0;
-        char dest_ip_str[64] = "";
 
         if (is_tcp) {
             src_port = ntohs(tcp_header->SrcPort);
@@ -368,133 +546,115 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             dest_port = ntohs(udp_header->DstPort);
         }
 
-        if (is_ipv6) {
-            // Format IPv6 address (simplified)
-            uint8_t* v6 = (uint8_t*)&ipv6_header->DstAddr;
-            snprintf(dest_ip_str, sizeof(dest_ip_str),
-                "%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-                v6[0], v6[1], v6[2], v6[3], v6[4], v6[5], v6[6], v6[7],
-                v6[8], v6[9], v6[10], v6[11], v6[12], v6[13], v6[14], v6[15]);
-            // Use 0 for IPv6 dest_ip (can't fit in uint32_t)
-            dest_ip = 0;
-        } else {
+        if (!is_ipv6 && ip_header != NULL) {
             src_ip = ip_header->SrcAddr;
             dest_ip = ip_header->DstAddr;
-            snprintf(dest_ip_str, sizeof(dest_ip_str), "%d.%d.%d.%d",
-                (dest_ip >> 0) & 0xFF, (dest_ip >> 8) & 0xFF,
-                (dest_ip >> 16) & 0xFF, (dest_ip >> 24) & 0xFF);
-        }
 
-        // Get process info
-        DWORD pid = 0;
-        if (is_tcp) {
-            pid = PacketProcessor_GetProcessFromTcp(src_ip, src_port);
-        } else if (is_udp) {
-            pid = PacketProcessor_GetProcessFromUdp(src_ip, src_port);
-        }
-
-        char process_name[256] = "";
-
-        // Try cache first to reduce system calls
-        if (!ProcessCache_Get(pid, process_name, sizeof(process_name))) {
-            // Cache miss - query system and update cache
-            PacketProcessor_GetProcessName(pid, process_name, sizeof(process_name));
-            if (process_name[0] != '\0') {
-                ProcessCache_Set(pid, process_name);
+            // ULTRA FAST PATH: Skip broadcast/multicast immediately
+            if (PacketProcessor_IsBroadcastOrMulticast(dest_ip)) {
+                WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                continue;
             }
-        }
 
-        // Self-exclusion
-        if (pid == g_current_process_id) {
-            WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
-            continue;
-        }
+            uint8_t protocol = is_tcp ? 6 : 17;
 
-        // Determine action
-        RuleAction action = RULE_ACTION_DIRECT;
+            // FAST PATH: Check decision cache to skip expensive processing
+            uint8_t cached_decision = DecisionCache_Get(src_ip, src_port, dest_ip, dest_port, protocol);
+            if (cached_decision == DECISION_DIRECT) {
+                WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                continue;
+            }
 
-        if (!is_ipv6 && dest_ip != 0) {
-            // IPv4: full rule matching
-            if (dest_port == 53 && !g_dns_via_proxy)
+            // SLOW PATH: Need full processing
+            DWORD pid = ConnectionCache_Get(src_ip, src_port, protocol);
+            if (pid == 0) {
+                if (is_tcp) {
+                    pid = PacketProcessor_GetProcessFromTcp(src_ip, src_port);
+                } else {
+                    pid = PacketProcessor_GetProcessFromUdp(src_ip, src_port);
+                }
+                if (pid != 0) {
+                    ConnectionCache_Set(src_ip, src_port, protocol, pid);
+                }
+            }
+
+            // Self-exclusion
+            if (pid == g_current_process_id) {
+                WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                continue;
+            }
+
+            char process_name[256] = "";
+            if (!ProcessCache_Get(pid, process_name, sizeof(process_name))) {
+                PacketProcessor_GetProcessName(pid, process_name, sizeof(process_name));
+                if (process_name[0] != '\0') {
+                    ProcessCache_Set(pid, process_name);
+                }
+            }
+
+            // Determine action
+            RuleAction action = RULE_ACTION_DIRECT;
+            if (dest_port == 53 && !g_dns_via_proxy) {
                 action = RULE_ACTION_DIRECT;
-            else
+            } else {
                 action = RuleEngine_Match(process_name, dest_ip, dest_port, is_tcp);
-
-            // Override for broadcast/multicast
-            if (action == RULE_ACTION_PROXY && PacketProcessor_IsBroadcastOrMulticast(dest_ip))
-                action = RULE_ACTION_DIRECT;
+            }
 
             // No proxy configured
-            if (action == RULE_ACTION_PROXY && (g_proxy_host[0] == '\0' || g_proxy_port == 0))
+            if (action == RULE_ACTION_PROXY && (g_proxy_host[0] == '\0' || g_proxy_port == 0)) {
                 action = RULE_ACTION_DIRECT;
-        } else {
-            // IPv6: only DIRECT or BLOCK (no proxy support yet)
-            action = RuleEngine_Match(process_name, 0, dest_port, is_tcp);
-            if (action == RULE_ACTION_PROXY) {
-                action = RULE_ACTION_DIRECT; // IPv6 proxy not supported
-            }
-        }
-
-        // Connection callback
-        if (g_connection_callback != NULL) {
-            char status_str[32];
-            const char* proto = is_tcp ? "TCP" : "UDP";
-            const char* ip_ver = is_ipv6 ? "v6" : "";
-
-            if (action == RULE_ACTION_PROXY) {
-                snprintf(status_str, sizeof(status_str), "PROXY/%s%s", proto, ip_ver);
-            } else if (action == RULE_ACTION_BLOCK) {
-                snprintf(status_str, sizeof(status_str), "BLOCK/%s%s", proto, ip_ver);
-            } else {
-                snprintf(status_str, sizeof(status_str), "DIRECT/%s%s", proto, ip_ver);
             }
 
-            const char* display_name = extract_filename(process_name);
-            g_connection_callback(display_name, pid, dest_ip_str, dest_port, status_str);
-        }
+            // Cache the decision
+            uint8_t decision_val = (action == RULE_ACTION_PROXY) ? DECISION_PROXY :
+                                   (action == RULE_ACTION_BLOCK) ? DECISION_BLOCK : DECISION_DIRECT;
+            DecisionCache_Set(src_ip, src_port, dest_ip, dest_port, protocol, decision_val);
 
-        // Apply action
-        if (action == RULE_ACTION_BLOCK) {
-            continue;  // Drop packet
-        }
-
-        if (action == RULE_ACTION_PROXY && is_tcp && !is_ipv6) {
-            // IPv4 TCP proxy - redirect to local proxy
-            ConnectionTracker_Add(src_port, src_ip, dest_ip, dest_port);
-
-            // Redirect to local proxy
-            // Set destination to source IP (connect to self)
-            // LocalProxy listens on 0.0.0.0:34010 so it will receive this
-            ip_header->DstAddr = src_ip;  // Redirect to client's own IP
-            tcp_header->DstPort = htons(LOCAL_TCP_PORT);
-            // Keep outbound - packet goes to client's own IP
-
-            WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
-            if (!WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr)) {
-                log_message("[PacketProcessor] WinDivertSend failed: %lu", GetLastError());
-            } else {
-                log_message("[PacketProcessor] Redirected port %d to local:34010", src_port);
+            // Connection callback (only for non-DIRECT to reduce overhead)
+            if (g_connection_callback != NULL && action != RULE_ACTION_DIRECT) {
+                char dest_ip_str[32];
+                snprintf(dest_ip_str, sizeof(dest_ip_str), "%d.%d.%d.%d",
+                    (dest_ip >> 0) & 0xFF, (dest_ip >> 8) & 0xFF,
+                    (dest_ip >> 16) & 0xFF, (dest_ip >> 24) & 0xFF);
+                const char* status_str = (action == RULE_ACTION_PROXY) ? "PROXY/TCP" : "BLOCK/TCP";
+                if (is_udp) status_str = (action == RULE_ACTION_PROXY) ? "PROXY/UDP" : "BLOCK/UDP";
+                g_connection_callback(extract_filename(process_name), pid, dest_ip_str, dest_port, status_str);
             }
-            continue;
-        }
 
-        if (action == RULE_ACTION_PROXY && is_udp && !is_ipv6) {
-            // IPv4 UDP proxy - redirect to UDP relay
-            uint16_t relay_port = UdpRelay_AddSession(src_ip, src_port, dest_ip, dest_port);
-            if (relay_port != 0) {
-                uint32_t temp = ip_header->DstAddr;
-                udp_header->DstPort = htons(relay_port);
-                ip_header->DstAddr = ip_header->SrcAddr;
-                ip_header->SrcAddr = temp;
-                addr.Outbound = FALSE;
+            // Apply action
+            if (action == RULE_ACTION_BLOCK) {
+                continue;
+            }
 
+            if (action == RULE_ACTION_PROXY && is_tcp) {
+                ConnectionTracker_Add(src_port, src_ip, dest_ip, dest_port);
+                ip_header->DstAddr = src_ip;
+                tcp_header->DstPort = htons(LOCAL_TCP_PORT);
                 WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
                 WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
                 continue;
             }
+
+            if (action == RULE_ACTION_PROXY && is_udp) {
+                uint16_t relay_port = UdpRelay_AddSession(src_ip, src_port, dest_ip, dest_port);
+                if (relay_port != 0) {
+                    uint32_t temp = ip_header->DstAddr;
+                    udp_header->DstPort = htons(relay_port);
+                    ip_header->DstAddr = ip_header->SrcAddr;
+                    ip_header->SrcAddr = temp;
+                    addr.Outbound = FALSE;
+                    WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
+                    WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+                    continue;
+                }
+            }
+
+            // DIRECT - forward packet
+            WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
+            continue;
         }
 
-        // DIRECT - just forward the packet
+        // IPv6 - just forward (no proxy support)
         WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
     }
 
