@@ -9,8 +9,14 @@
 extern "C" {
 #endif
 
-#define LOCAL_TCP_PORT 34010
-#define LOCAL_UDP_PORT 34011
+#define LOCAL_TCP_PORT_BASE 34020
+#define LOCAL_UDP_PORT_BASE 34021
+#define LOCAL_PORT_RANGE 10  // Try up to 10 different ports
+
+// Get current active ports (may differ from base if port was busy)
+uint16_t PacketProcessor_GetActiveTcpPort(void);
+uint16_t PacketProcessor_GetActiveUdpPort(void);
+void PacketProcessor_SetActivePorts(uint16_t tcp_port, uint16_t udp_port);
 
 // Initialize and cleanup
 bool PacketProcessor_Init(void);

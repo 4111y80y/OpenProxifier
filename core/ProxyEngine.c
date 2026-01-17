@@ -15,6 +15,10 @@ char g_proxy_username[64] = "";
 char g_proxy_password[64] = "";
 bool g_dns_via_proxy = true;
 
+// Active ports (may differ from base if ports were busy)
+static uint16_t g_active_tcp_port = 0;
+static uint16_t g_active_udp_port = 0;
+
 // Callbacks
 LogCallback g_log_callback = NULL;
 ConnectionCallback g_connection_callback = NULL;
@@ -150,31 +154,60 @@ bool ProxyEngine_Start(void) {
 
     if (g_running) return true;
 
-    // Start local proxy server
-    if (!UdpRelay_Start(LOCAL_UDP_PORT)) {
-        log_message("[ProxyEngine] Failed to start UDP relay");
+    // Try to find available ports (auto-switch if busy)
+    bool udp_started = false;
+    bool tcp_started = false;
+
+    for (int i = 0; i < LOCAL_PORT_RANGE && !udp_started; i++) {
+        uint16_t port = LOCAL_UDP_PORT_BASE + (i * 2);
+        if (UdpRelay_Start(port)) {
+            g_active_udp_port = port;
+            udp_started = true;
+            if (i > 0) {
+                log_message("[ProxyEngine] UDP port %d was busy, using %d", LOCAL_UDP_PORT_BASE, port);
+            }
+        }
+    }
+
+    if (!udp_started) {
+        log_message("[ProxyEngine] Failed to start UDP relay (all ports busy)");
         return false;
     }
 
-    if (!LocalProxy_Start(LOCAL_TCP_PORT)) {
-        log_message("[ProxyEngine] Failed to start local proxy");
+    for (int i = 0; i < LOCAL_PORT_RANGE && !tcp_started; i++) {
+        uint16_t port = LOCAL_TCP_PORT_BASE + (i * 2);
+        if (LocalProxy_Start(port)) {
+            g_active_tcp_port = port;
+            tcp_started = true;
+            if (i > 0) {
+                log_message("[ProxyEngine] TCP port %d was busy, using %d", LOCAL_TCP_PORT_BASE, port);
+            }
+        }
+    }
+
+    if (!tcp_started) {
+        log_message("[ProxyEngine] Failed to start local proxy (all ports busy)");
+        UdpRelay_Stop();
         return false;
     }
 
     // Give proxy server time to start
     Sleep(100);
 
-    // Start packet processor
+    // Set active ports for PacketProcessor
+    PacketProcessor_SetActivePorts(g_active_tcp_port, g_active_udp_port);
+
+    // Start packet processor with active ports
     if (!PacketProcessor_Start()) {
         log_message("[ProxyEngine] Failed to start packet processor");
         LocalProxy_Stop();
-    UdpRelay_Stop();
+        UdpRelay_Stop();
         return false;
     }
 
     g_running = true;
     log_message("[ProxyEngine] Started successfully");
-    log_message("[ProxyEngine] Local relay: 127.0.0.1:%d", LOCAL_TCP_PORT);
+    log_message("[ProxyEngine] Local relay: TCP=%d, UDP=%d", g_active_tcp_port, g_active_udp_port);
 
     if (g_proxy_host[0] != '\0' && g_proxy_port > 0) {
         log_message("[ProxyEngine] Proxy: %s://%s:%d",

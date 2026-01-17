@@ -69,6 +69,8 @@ static HANDLE g_windivert_handle = INVALID_HANDLE_VALUE;
 static HANDLE g_packet_thread = NULL;
 static volatile bool g_running = false;
 static DWORD g_current_process_id = 0;
+static uint16_t g_active_tcp_port = LOCAL_TCP_PORT_BASE;
+static uint16_t g_active_udp_port = LOCAL_UDP_PORT_BASE;
 
 // External references
 extern char g_proxy_host[256];
@@ -77,6 +79,14 @@ extern int g_proxy_type;
 extern bool g_dns_via_proxy;
 extern LogCallback g_log_callback;
 extern ConnectionCallback g_connection_callback;
+
+// Get/Set active ports (used by ProxyEngine)
+uint16_t PacketProcessor_GetActiveTcpPort(void) { return g_active_tcp_port; }
+uint16_t PacketProcessor_GetActiveUdpPort(void) { return g_active_udp_port; }
+void PacketProcessor_SetActivePorts(uint16_t tcp_port, uint16_t udp_port) {
+    g_active_tcp_port = tcp_port;
+    g_active_udp_port = udp_port;
+}
 
 static void log_message(const char* fmt, ...) {
     if (g_log_callback == NULL) return;
@@ -504,10 +514,10 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             continue;
         }
 
-        // Handle LocalProxy response packets (outbound from port 34010)
+        // Handle LocalProxy response packets (outbound from local proxy port)
         // These need NAT: change source from LocalProxy to original destination
         if (addr.Outbound && !is_ipv6 && is_tcp && ip_header != NULL && tcp_header != NULL) {
-            if (ntohs(tcp_header->SrcPort) == LOCAL_TCP_PORT) {
+            if (ntohs(tcp_header->SrcPort) == g_active_tcp_port) {
                 // This is a response from LocalProxy, need to NAT it back
                 uint16_t client_port = ntohs(tcp_header->DstPort);
                 uint32_t orig_src_ip;
@@ -629,7 +639,7 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
             if (action == RULE_ACTION_PROXY && is_tcp) {
                 ConnectionTracker_Add(src_port, src_ip, dest_ip, dest_port);
                 ip_header->DstAddr = src_ip;
-                tcp_header->DstPort = htons(LOCAL_TCP_PORT);
+                tcp_header->DstPort = htons(g_active_tcp_port);
                 WinDivertHelperCalcChecksums(packet, packet_len, &addr, 0);
                 WinDivertSend(g_windivert_handle, packet, packet_len, NULL, &addr);
                 continue;
@@ -679,7 +689,7 @@ bool PacketProcessor_Start(void) {
     if (g_running) return true;
 
     char filter[512];
-    // Capture TCP/UDP packets:
+    // Capture TCP/UDP packets using active ports:
     // - Outbound TCP: all except to local proxy port (for redirection)
     // - Outbound UDP: all except to local relay port
     // - Outbound TCP from local proxy: for NAT response (LocalProxy -> client)
@@ -687,7 +697,7 @@ bool PacketProcessor_Start(void) {
         "(outbound and tcp and tcp.DstPort != %d and tcp.SrcPort != %d) or "
         "(outbound and udp and udp.DstPort != %d) or "
         "(outbound and tcp and tcp.SrcPort == %d)",
-        LOCAL_TCP_PORT, LOCAL_TCP_PORT, LOCAL_UDP_PORT, LOCAL_TCP_PORT);
+        g_active_tcp_port, g_active_tcp_port, g_active_udp_port, g_active_tcp_port);
 
     log_message("[PacketProcessor] Opening WinDivert with filter: %s", filter);
 
