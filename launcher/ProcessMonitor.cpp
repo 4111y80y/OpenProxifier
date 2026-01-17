@@ -712,7 +712,7 @@ void ProcessMonitor::onMonitorThread()
         }
         m_injectedProcesses.subtract(toRemove);
 
-        Sleep(100);  // Reduced to 100ms for faster detection
+        Sleep(500);  // 500ms interval - balance between detection speed and CPU usage
     }
 
     MonitorLog("Polling monitoring thread stopped");

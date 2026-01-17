@@ -16,6 +16,20 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #define MAXBUF 0xFFFF
+#define PROCESS_CACHE_SIZE 256
+#define PROCESS_CACHE_TTL 5000  // 5 seconds TTL
+
+// Process name cache entry
+typedef struct {
+    DWORD pid;
+    char name[256];
+    DWORD timestamp;
+    bool valid;
+} ProcessCacheEntry;
+
+static ProcessCacheEntry g_process_cache[PROCESS_CACHE_SIZE];
+static CRITICAL_SECTION g_cache_lock;
+static bool g_cache_initialized = false;
 
 static HANDLE g_windivert_handle = INVALID_HANDLE_VALUE;
 static HANDLE g_packet_thread = NULL;
@@ -38,6 +52,82 @@ static void log_message(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
     g_log_callback(buffer);
+}
+
+// Process cache functions
+static void ProcessCache_Init(void) {
+    if (g_cache_initialized) return;
+    InitializeCriticalSection(&g_cache_lock);
+    memset(g_process_cache, 0, sizeof(g_process_cache));
+    g_cache_initialized = true;
+}
+
+static void ProcessCache_Cleanup(void) {
+    if (!g_cache_initialized) return;
+    DeleteCriticalSection(&g_cache_lock);
+    g_cache_initialized = false;
+}
+
+static bool ProcessCache_Get(DWORD pid, char* name, DWORD name_size) {
+    if (!g_cache_initialized || pid == 0) return false;
+
+    DWORD now = GetTickCount();
+    bool found = false;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    int hash = pid % PROCESS_CACHE_SIZE;
+    for (int i = 0; i < PROCESS_CACHE_SIZE; i++) {
+        int idx = (hash + i) % PROCESS_CACHE_SIZE;
+        if (g_process_cache[idx].valid && g_process_cache[idx].pid == pid) {
+            // Check TTL
+            if (now - g_process_cache[idx].timestamp < PROCESS_CACHE_TTL) {
+                strncpy(name, g_process_cache[idx].name, name_size - 1);
+                name[name_size - 1] = '\0';
+                found = true;
+            } else {
+                // Expired
+                g_process_cache[idx].valid = false;
+            }
+            break;
+        }
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
+    return found;
+}
+
+static void ProcessCache_Set(DWORD pid, const char* name) {
+    if (!g_cache_initialized || pid == 0) return;
+
+    EnterCriticalSection(&g_cache_lock);
+
+    int hash = pid % PROCESS_CACHE_SIZE;
+    int empty_slot = -1;
+
+    for (int i = 0; i < PROCESS_CACHE_SIZE; i++) {
+        int idx = (hash + i) % PROCESS_CACHE_SIZE;
+        if (g_process_cache[idx].valid && g_process_cache[idx].pid == pid) {
+            // Update existing
+            strncpy(g_process_cache[idx].name, name, sizeof(g_process_cache[idx].name) - 1);
+            g_process_cache[idx].timestamp = GetTickCount();
+            LeaveCriticalSection(&g_cache_lock);
+            return;
+        }
+        if (!g_process_cache[idx].valid && empty_slot < 0) {
+            empty_slot = idx;
+        }
+    }
+
+    // Insert new
+    if (empty_slot >= 0) {
+        g_process_cache[empty_slot].pid = pid;
+        strncpy(g_process_cache[empty_slot].name, name, sizeof(g_process_cache[empty_slot].name) - 1);
+        g_process_cache[empty_slot].timestamp = GetTickCount();
+        g_process_cache[empty_slot].valid = true;
+    }
+
+    LeaveCriticalSection(&g_cache_lock);
 }
 
 bool PacketProcessor_IsBroadcastOrMulticast(uint32_t ip) {
@@ -304,7 +394,15 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
         }
 
         char process_name[256] = "";
-        PacketProcessor_GetProcessName(pid, process_name, sizeof(process_name));
+
+        // Try cache first to reduce system calls
+        if (!ProcessCache_Get(pid, process_name, sizeof(process_name))) {
+            // Cache miss - query system and update cache
+            PacketProcessor_GetProcessName(pid, process_name, sizeof(process_name));
+            if (process_name[0] != '\0') {
+                ProcessCache_Set(pid, process_name);
+            }
+        }
 
         // Self-exclusion
         if (pid == g_current_process_id) {
@@ -407,12 +505,14 @@ static DWORD WINAPI PacketProcessorThread(LPVOID arg) {
 bool PacketProcessor_Init(void) {
     g_current_process_id = GetCurrentProcessId();
     ProcessTracker_Init();
+    ProcessCache_Init();
     return true;
 }
 
 void PacketProcessor_Cleanup(void) {
     PacketProcessor_Stop();
     ProcessTracker_Cleanup();
+    ProcessCache_Cleanup();
 }
 
 bool PacketProcessor_Start(void) {
