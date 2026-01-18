@@ -108,6 +108,27 @@ DLL injection mode uses Microsoft Detours to hook Winsock API calls (`connect`, 
 5. Click "Start Monitoring" to begin transparent proxying
 6. Use "Launch Test App" to verify proxy is working
 
+### Usage Example: Configure Proxy for Antigravity
+
+![Antigravity Example](docs/antigravity_example.png)
+
+To route Antigravity (an AI programming tool) through the proxy, add the following three processes to the target list:
+
+| Process Name | Description |
+|--------------|-------------|
+| `Antigravity.exe` | Main application |
+| `inno_updater.exe` | Update program |
+| `language_server_windows_x64.exe` | Language server |
+
+Configuration steps:
+1. Set SOCKS5 proxy server address and port (e.g., `127.0.0.1:1081`)
+2. Click "Test Connection" to verify proxy availability
+3. Add the three processes above to the "Target Processes" list
+4. Check "Auto-start monitoring on launch" (optional)
+5. Click "Start Monitoring"
+
+All network requests from Antigravity will now go through the SOCKS5 proxy.
+
 ### Command Line Mode
 
 ```batch
