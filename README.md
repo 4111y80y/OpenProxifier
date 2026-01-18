@@ -108,6 +108,27 @@ DLL 注入模式使用 Microsoft Detours 钩住 Winsock API 调用（`connect`�
 5. 点击"开始监控"开始透明代理
 6. 使用"启动测试程序"验证代理是否正常工作
 
+### 使用示例：为 Antigravity 配置代理
+
+![Antigravity示例](docs/antigravity_example.png)
+
+要让 Antigravity（一款AI编程工具）通过代理上网，需要添加以下三个进程到目标列表：
+
+| 进程名 | 说明 |
+|--------|------|
+| `Antigravity.exe` | 主程序 |
+| `inno_updater.exe` | 更新程序 |
+| `language_server_windows_x64.exe` | 语言服务器 |
+
+配置步骤：
+1. 设置 SOCKS5 代理服务器地址和端口（如 `127.0.0.1:1081`）
+2. 点击"测试连接"确认代理可用
+3. 在"目标进程"列表中依次添加上述三个进程名
+4. 勾选"启动时自动开始监控"（可选）
+5. 点击"开始监控"
+
+这样 Antigravity 的所有网络请求都会通过 SOCKS5 代理进行。
+
 ### 命令行模式
 
 ```batch
